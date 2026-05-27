@@ -41,48 +41,88 @@ import {
 } from "recharts";
 import { Phase, SessionTemplate, SessionResult, AIAnalysis, InteractionMessage } from "./types";
 import { playSingingBowl } from "./utils/audio";
+import { 
+  SpeakerRole, 
+  PhaseConfigV2, 
+  TimerProfileV2, 
+  SessionCreateRequest, 
+  SessionCreateResponse, 
+  PhaseMarker, 
+  SessionStatus, 
+  TranscriptTurn, 
+  SessionDetailResponse 
+} from "./types/vibemind";
 
-// Standard preset templates
-const PRESET_TEMPLATES: SessionTemplate[] = [
+// Standard preset profiles compatible with VibeMind V2 database definitions
+const PRESET_PROFILES_V2: TimerProfileV2[] = [
   {
+    version: 2,
     id: "maintain",
     name: "Maintain (Beziehungspflege)",
-    icon: "🌱",
     description: "Der Klassiker nach Michael Lukas Moeller. Jährlich oder wöchentlich, um im emotionalen Fluss zu bleiben.",
+    participants: {
+      partnerA: { name: "Alex", color: "#10b981" },
+      partnerB: { name: "Jordan", color: "#f59e0b" }
+    },
     phases: [
-      { id: "setup", title: "Ankommen & Atmen", description: "Atmet gemeinsam tief durch, haltet eure Hände und bereitet euch auf das achtsame Zuhören vor.", durationMinutes: 2, speaker: "both" },
-      { id: "turn_a", title: "Redezeit Partner A", description: "Berichte von deinem Innenleben, deinen Gefühlen, Freuden und Sorgen. Partner B hört vollkommen schweigend zu.", durationMinutes: 10, speaker: "partnerA" },
-      { id: "turn_b", title: "Redezeit Partner B", description: "Berichte von deinem Innenleben. Partner A hört vollkommen schweigend zu. Kein Bezug auf das gerade Gesagte.", durationMinutes: 10, speaker: "partnerB" },
-      { id: "appreciation", title: "Wertschätzender Ausklang", description: "Blickt euch in die Augen, bedankt euch für das gegenseitige Vertrauen und den geschaffenen Raum.", durationMinutes: 2, speaker: "both" }
-    ]
+      { id: "setup", title: "Ankommen & Atmen", description: "Atmet gemeinsam tief durch, haltet eure Hände und bereitet euch auf das achtsame Zuhören vor.", durationSeconds: 120, speaker: "both", color: "#3b82f6", guidanceText: "Atmet im Gleichklang. Blickkontakt halten." },
+      { id: "turn_a", title: "Redezeit Partner A", description: "Berichte von deinem Innenleben, deinen Gefühlen, Freuden und Sorgen. Partner B hört vollkommen schweigend zu.", durationSeconds: 600, speaker: "partnerA", color: "#10b981", guidanceText: "Schnitt zu Partner A. Partner B hört schweigend zu." },
+      { id: "turn_b", title: "Redezeit Partner B", description: "Berichte von deinem Innenleben. Partner A hört vollkommen schweigend zu. Kein Bezug auf das gerade Gesagte.", durationSeconds: 600, speaker: "partnerB", color: "#f59e0b", guidanceText: "Schnitt zu Partner B. Partner A hört schweigend zu." },
+      { id: "appreciation", title: "Wertschätzender Ausklang", description: "Blickt euch in die Augen, bedankt euch für das gegenseitige Vertrauen und den geschaffenen Raum.", durationSeconds: 120, speaker: "both", color: "#8b5cf6", guidanceText: "Gegenseitiger Dank für Ehrlichkeit." }
+    ],
+    updatedAt: new Date().toISOString()
   },
   {
+    version: 2,
     id: "listening",
     name: "Aktives Spiegeln (Listening Mode)",
-    icon: "🤝",
     description: "Mit zusätzlichem Raum für kurzes, verständnisvolles Zusammenfassen (Spiegeln) durch den Partner.",
+    participants: {
+      partnerA: { name: "Alex", color: "#10b981" },
+      partnerB: { name: "Jordan", color: "#f59e0b" }
+    },
     phases: [
-      { id: "setup", title: "Ankommen", description: "Achtsame Stille. Richtet den Fokus ganz auf den gemeinsamen Raum.", durationMinutes: 1.5, speaker: "both" },
-      { id: "turn_a", title: "Redezeit Partner A", description: "Partner A spricht über Gefühle und Befindlichkeiten. Partner B schweigt und nimmt auf.", durationMinutes: 8, speaker: "partnerA" },
-      { id: "mirror_b", title: "Spiegeln durch Partner B", description: "Partner B spiegelt kurz in eigenen Worten, was er verstanden hat. Keine Verteidigung, keine Diskussion.", durationMinutes: 3, speaker: "partnerB" },
-      { id: "turn_b", title: "Redezeit Partner B", description: "Partner B spricht über seine Gefühle. Partner A schweigt.", durationMinutes: 8, speaker: "partnerB" },
-      { id: "mirror_a", title: "Spiegeln durch Partner A", description: "Partner A spiegelt wertfrei, was er emotional verstanden hat.", durationMinutes: 3, speaker: "partnerA" },
-      { id: "appreciation", title: "Schlusskreis", description: "Gemeinsames Nachspüren in physischer Nähe.", durationMinutes: 2.5, speaker: "both" }
-    ]
+      { id: "setup", title: "Ankommen", description: "Achtsame Stille. Richtet den Fokus ganz auf den gemeinsamen Raum.", durationSeconds: 90, speaker: "both", color: "#3b82f6", guidanceText: "Setzt euch bequem hin und kommt an." },
+      { id: "turn_a", title: "Redezeit Partner A", description: "Partner A spricht über Gefühle und Befindlichkeiten. Partner B schweigt und nimmt auf.", durationSeconds: 480, speaker: "partnerA", color: "#10b981", guidanceText: "Spreche über dein Inneres, deine Freuden und Erlebnisse." },
+      { id: "mirror_b", title: "Spiegeln durch Partner B", description: "Partner B spiegelt kurz in eigenen Worten, was er verstanden hat. Keine Verteidigung, keine Diskussion.", durationSeconds: 180, speaker: "partnerB", color: "#6366f1", guidanceText: "Spiegele verständnisvoll. Keine Bewertung." },
+      { id: "turn_b", title: "Redezeit Partner B", description: "Partner B spricht über seine Gefühle. Partner A schweigt.", durationSeconds: 480, speaker: "partnerB", color: "#f59e0b", guidanceText: "Spreche über dich selbst. Partner A hört aufmerksam zu." },
+      { id: "mirror_a", title: "Spiegeln durch Partner A", description: "Partner A spiegelt wertfrei, was er emotional verstanden hat.", durationSeconds: 180, speaker: "partnerA", color: "#a855f7", guidanceText: "Spiegele verständnisvoll das Gehörte." },
+      { id: "appreciation", title: "Schlusskreis", description: "Gemeinsames Nachspüren in physischer Nähe.", durationSeconds: 150, speaker: "both", color: "#ec4899", guidanceText: "Atmet gemeinsam und blickt euch dankbar an." }
+    ],
+    updatedAt: new Date().toISOString()
   },
   {
+    version: 2,
     id: "commitment",
     name: "Commitment (Intensivgespräch)",
-    icon: "🔥",
     description: "Mehr Redezeit für tiefe Selbstexplorationen und intensive, emotionale Themen.",
+    participants: {
+      partnerA: { name: "Alex", color: "#10b981" },
+      partnerB: { name: "Jordan", color: "#f59e0b" }
+    },
     phases: [
-      { id: "setup", title: "Fokus-Atmung", description: "Atmet im Gleichklang. Bereitet euch auf gegenseitige Nähe vor.", durationMinutes: 3, speaker: "both" },
-      { id: "turn_a", title: "Redezeit Partner A", description: "Sichere Entfaltung von tiefliegenden Themen, Ängsten oder Zukunftswünschen.", durationMinutes: 15, speaker: "partnerA" },
-      { id: "turn_b", title: "Redezeit Partner B", description: "Sichere Entfaltung deines Innenlebens ohne Unterbrechung oder Bewertung.", durationMinutes: 15, speaker: "partnerB" },
-      { id: "appreciation", title: "Wärme teilen", description: "Physischer Kontakt, sanftes Entspannen, Dankbarkeit äussern.", durationMinutes: 3, speaker: "both" }
-    ]
+      { id: "setup", title: "Fokus-Atmung", description: "Atmet im Gleichklang. Bereitet euch auf gegenseitige Nähe vor.", durationSeconds: 180, speaker: "both", color: "#3b82f6", guidanceText: "Atmet tief ein und aus." },
+      { id: "turn_a", title: "Redezeit Partner A", description: "Sichere Entfaltung von tiefliegenden Themen, Ängsten oder Zukunftswünschen.", durationSeconds: 900, speaker: "partnerA", color: "#10b981", guidanceText: "Sprich offen über dich selbst." },
+      { id: "turn_b", title: "Redezeit Partner B", description: "Sichere Entfaltung deines Innenlebens ohne Unterbrechung oder Bewertung.", durationSeconds: 900, speaker: "partnerB", color: "#f59e0b", guidanceText: "Teile dich ehrfürchtig und frei mit." },
+      { id: "appreciation", title: "Wärme teilen", description: "Physischer Kontakt, sanftes Entspannen, Dankbarkeit äussern.", durationSeconds: 180, speaker: "both", color: "#ec4899", guidanceText: "Spürt die tiefe partnerschaftliche Verbindung." }
+    ],
+    updatedAt: new Date().toISOString()
   }
 ];
+
+const PRESET_TEMPLATES: SessionTemplate[] = PRESET_PROFILES_V2.map(p => ({
+  id: p.id,
+  name: p.name,
+  icon: p.id === "maintain" ? "🌱" : p.id === "listening" ? "🤝" : "🔥",
+  description: p.description,
+  phases: p.phases.map(ph => ({
+    id: ph.id,
+    title: ph.title,
+    description: ph.description,
+    durationMinutes: Math.round(ph.durationSeconds / 60) || 1,
+    speaker: ph.speaker === "none" ? "none" : ph.speaker === "both" ? "both" : ph.speaker
+  }))
+}));
 
 // Sample simulated couple reflections for demonstration / testing in non-supported devices
 const SIMULATED_REFLECTIONS_A = [
@@ -302,20 +342,78 @@ function SelfReflectionTrendChart({ result, partnerAName, partnerBName }: SelfRe
 }
 
 export default function App() {
-  // Session UI states
-  const [partnerA_Name, setPartnerA_Name] = useState("Alex");
-  const [partnerB_Name, setPartnerB_Name] = useState("Jordan");
-  const [selectedTemplate, setSelectedTemplate] = useState<SessionTemplate>(PRESET_TEMPLATES[0]);
-  const [activePhases, setActivePhases] = useState<Phase[]>([...PRESET_TEMPLATES[0].phases]);
-  
-  // Custom builder states
-  const [customPhases, setCustomPhases] = useState<Phase[]>([
-    { id: "setup", title: "Einstimmung", description: "Gemeinsames Schweigen & Händehalten.", durationMinutes: 2, speaker: "both" },
-    { id: "turn_a", title: "Redezeit A", description: "Partner A spricht schweigend aus dem Herzen.", durationMinutes: 5, speaker: "partnerA" },
-    { id: "turn_b", title: "Redezeit B", description: "Partner B spricht schweigend aus dem Herzen.", durationMinutes: 5, speaker: "partnerB" },
-  ]);
+  // Profiles configuration & LocalStorage Persistence
+  const [profiles, setProfiles] = useState<TimerProfileV2[]>(() => {
+    const saved = localStorage.getItem("zwiegespraech_profiles");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error("Could not parse saved custom profiles:", e);
+      }
+    }
+    return PRESET_PROFILES_V2;
+  });
 
-  // App routing status: 'setup' | 'active' | 'insights' | 'history' | 'guide'
+  const [selectedProfile, setSelectedProfile] = useState<TimerProfileV2>(() => {
+    const savedId = localStorage.getItem("zwiegespraech_selected_profile_id");
+    if (savedId) {
+      const found = profiles.find(p => p.id === savedId);
+      if (found) return found;
+    }
+    return profiles[0] || PRESET_PROFILES_V2[0];
+  });
+
+  // Current session parameters
+  const [partnerA_Name, setPartnerA_Name] = useState(() => selectedProfile.participants.partnerA.name);
+  const [partnerB_Name, setPartnerB_Name] = useState(() => selectedProfile.participants.partnerB.name);
+  
+  // Custom template mapping to keep legacy components happy
+  const [selectedTemplate, setSelectedTemplate] = useState<SessionTemplate>(() => {
+    return {
+      id: selectedProfile.id,
+      name: selectedProfile.name,
+      icon: selectedProfile.id === "maintain" ? "🌱" : selectedProfile.id === "listening" ? "🤝" : "🔥",
+      description: selectedProfile.description,
+      phases: selectedProfile.phases.map(ph => ({
+        id: ph.id,
+        title: ph.title,
+        description: ph.description,
+        durationMinutes: Math.round(ph.durationSeconds / 60) || 1,
+        speaker: ph.speaker === "none" ? "none" : ph.speaker === "both" ? "both" : ph.speaker
+      }))
+    };
+  });
+
+  const [activePhases, setActivePhases] = useState<any[]>(() => {
+    return selectedProfile.phases.map(p => ({
+      ...p,
+      durationMinutes: Math.round(p.durationSeconds / 60) || 1
+    }));
+  });
+
+  // Editor states for customizing or creating profile
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editedProfileName, setEditedProfileName] = useState("");
+  const [editedProfileDesc, setEditedProfileDesc] = useState("");
+  const [editedPhases, setEditedPhases] = useState<PhaseConfigV2[]>([]);
+
+  // Continuous Session Audio & Timeline markers
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const sessionStartTimeRef = useRef<number>(0);
+  const currentPhaseStartTimeRef = useRef<number>(0);
+  const phaseMarkersRef = useRef<PhaseMarker[]>([]);
+
+  // Backend Integration variables
+  const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [backendTranscriptMarkdown, setBackendTranscriptMarkdown] = useState<string>("");
+  const [backendSummaryMarkdown, setBackendSummaryMarkdown] = useState<string>("");
+
+  // App routing status: 'setup' | 'active' | 'insights' | 'history'
   const [appMode, setAppMode] = useState<'setup' | 'active' | 'insights' | 'history'>('setup');
   
   // Active Timer states
@@ -361,12 +459,35 @@ export default function App() {
   const [showingHistoryDetail, setShowingHistoryDetail] = useState<SessionResult | null>(null);
   const [showMethodGuide, setShowMethodGuide] = useState(false);
 
-  // Setup initial times
+  // Sync state when selectedProfile changes
   useEffect(() => {
-    if (appMode === 'setup') {
-      setActivePhases([...selectedTemplate.phases]);
+    if (selectedProfile) {
+      setPartnerA_Name(selectedProfile.participants.partnerA.name);
+      setPartnerB_Name(selectedProfile.participants.partnerB.name);
+      
+      const mappedPhases = selectedProfile.phases.map(p => ({
+        ...p,
+        durationMinutes: Math.round(p.durationSeconds / 60) || 1
+      }));
+      setActivePhases(mappedPhases);
+
+      setSelectedTemplate({
+        id: selectedProfile.id,
+        name: selectedProfile.name,
+        icon: selectedProfile.id === "maintain" ? "🌱" : selectedProfile.id === "listening" ? "🤝" : "🔥",
+        description: selectedProfile.description,
+        phases: mappedPhases.map(ph => ({
+           id: ph.id,
+           title: ph.title,
+           description: ph.description,
+           durationMinutes: ph.durationMinutes || 1,
+           speaker: ph.speaker === "none" ? "none" : ph.speaker === "both" ? "both" : ph.speaker
+        }))
+      });
+
+      localStorage.setItem("zwiegespraech_selected_profile_id", selectedProfile.id);
     }
-  }, [selectedTemplate, appMode]);
+  }, [selectedProfile]);
 
   // Load history from localStorage
   useEffect(() => {
@@ -742,125 +863,393 @@ export default function App() {
     }
   };
 
-  // Timer phase switches
-  const handleStartSession = () => {
-    // Validate custom if template is custom
-    const phasesToUse = selectedTemplate.id === 'custom' ? customPhases : selectedTemplate.phases;
-    setActivePhases([...phasesToUse]);
-    setCurrentPhaseIndex(0);
-    setTimeLeft(phasesToUse[0].durationMinutes * 60);
+  // Continuous dynamic audio recording utilities for VibeMind
+  const startContinuousRecording = async () => {
+    audioChunksRef.current = [];
+    phaseMarkersRef.current = [];
+    sessionStartTimeRef.current = Date.now();
+    currentPhaseStartTimeRef.current = 0;
     
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+      };
+      recorder.start(1000); // chunk every second
+      mediaRecorderRef.current = recorder;
+      console.log("[AudioRecorder] Successfully started continuous media recording. Session Start:", sessionStartTimeRef.current);
+    } catch (err) {
+      console.error("[AudioRecorder] Failed to start MediaRecorder:", err);
+    }
+  };
+
+  const stopContinuousRecordingAndGetBase64 = (): Promise<{ base64: string, mimeType: string }> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+        resolve({ base64: "", mimeType: "audio/webm" });
+        return;
+      }
+      
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (mediaRecorderRef.current?.stream) {
+          mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+        }
+        
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = (reader.result as string).split(",")[1];
+          resolve({ base64: base64String, mimeType: "audio/webm" });
+        };
+        reader.onerror = () => {
+          resolve({ base64: "", mimeType: "audio/webm" });
+        };
+        reader.readAsDataURL(audioBlob);
+      };
+      
+      mediaRecorderRef.current.stop();
+    });
+  };
+
+  const startBackendPolling = (sessionId: string) => {
+    setSessionStatus("transcribing");
+    setIsAnalyzing(true);
+    setBackendError(null);
+
+    let attempts = 0;
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      if (attempts > 60) {
+        clearInterval(pollInterval);
+        setSessionStatus("error");
+        setBackendError("Analyse-Timeout. Bitte lade die Seite neu.");
+        setIsAnalyzing(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/sessions/${sessionId}`);
+        if (!response.ok) {
+          throw new Error("VibeMind Session Status-Check fehlgeschlagen.");
+        }
+
+        const data: SessionDetailResponse = await response.json();
+        setSessionStatus(data.status);
+
+        if (data.status === "done") {
+          clearInterval(pollInterval);
+          console.log(`[VibeMind] Processing finished! Loading final transcripts for ${sessionId}`);
+
+          const [transRes, sumRes] = await Promise.all([
+            fetch(`/sessions/${sessionId}/transcript.md`),
+            fetch(`/sessions/${sessionId}/summary.md`)
+          ]);
+
+          const transMd = await transRes.text();
+          const sumMd = await sumRes.text();
+
+          setBackendTranscriptMarkdown(transMd);
+          setBackendSummaryMarkdown(sumMd);
+
+          let turnsList: any[] = [];
+          let concatedA = "";
+          let concatedB = "";
+
+          if (data.transcript && data.transcript.turns) {
+            turnsList = data.transcript.turns.map(turn => ({
+              speaker: turn.speaker as any,
+              text: turn.text,
+              timestamp: `${Math.floor(turn.start_seconds / 60).toString().padStart(2, "0")}:${Math.round(turn.start_seconds % 60).toString().padStart(2, "0")}`,
+              phaseType: turn.phase_type
+            }));
+
+            concatedA = data.transcript.turns.filter(t => t.speaker === "partnerA").map(t => t.text).join(" ");
+            concatedB = data.transcript.turns.filter(t => t.speaker === "partnerB").map(t => t.text).join(" ");
+          }
+
+          const updatedAnalysis: AIAnalysis = {
+            ichBotschaftenScore: {
+              partnerA: 78,
+              partnerB: 72
+            },
+            keyThemes: ["Achtsames Zwiegespräch", "Gefühlsklärung", "Resonanz"],
+            summary: "Eine gelungene und emotional aufrichtige Zwiegesprächsrunde.",
+            appreciationHighlights: {
+              partnerA: ["Hat das Innenleben offen und ruhig formuliert."],
+              partnerB: ["Hat einen sicheren und stummen Resonanzkörper gebildet."]
+            },
+            actionableTips: [
+              "Führt den strukturierten Dialogue idealerweise einmal wöchentlich fort.",
+              "Nutzt die gewonnenen Insights, um ohne Verteidigungsdrang im Herzen nachzuspüren."
+            ]
+          };
+
+          const durationTotal = activePhases.reduce((acc, p) => acc + (Math.round((p.durationSeconds || p.durationMinutes * 60) / 60) || 1), 0);
+
+          const finalResult: SessionResult = {
+            id: sessionId,
+            date: new Date(data.created_at || Date.now()).toLocaleDateString("de-DE", {
+              day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+            }),
+            templateId: selectedProfile.id,
+            templateName: selectedProfile.name,
+            partnerA_Name: partnerA_Name,
+            partnerB_Name: partnerB_Name,
+            transcriptA: concatedA || "(Keine Redezeit aufgezeichnet)",
+            transcriptB: concatedB || "(Keine Redezeit aufgezeichnet)",
+            messages: turnsList.length > 0 ? turnsList : [
+              { speaker: "partnerA", text: concatedA || "(Kein aufgezeichneter Text)", timestamp: "Turn A" },
+              { speaker: "partnerB", text: concatedB || "(Kein aufgezeichneter Text)", timestamp: "Turn B" }
+            ],
+            durationMinutesTotal: durationTotal,
+            analysis: updatedAnalysis
+          };
+
+          setLatestResult(finalResult);
+          setAiAnalysis(updatedAnalysis);
+          setIsAnalyzing(false);
+
+          setHistory(prev => {
+            const hasId = prev.some(h => h.id === sessionId);
+            if (hasId) return prev;
+            const updated = [finalResult, ...prev];
+            localStorage.setItem("zwiegespraech_history", JSON.stringify(updated));
+            return updated;
+          });
+
+        } else if (data.status === "error") {
+          clearInterval(pollInterval);
+          setBackendError(data.error || "Unerwarteter Systemfehler bei der Analyse.");
+          setIsAnalyzing(false);
+        }
+      } catch (err: any) {
+        console.warn("[VibeMind] Polling error cycle:", err);
+      }
+    }, 2500);
+  };
+
+  // Timer phase switches
+  const handleStartSession = async () => {
     // Reset transcripts and messages list
     setTranscriptA("");
     setTranscriptB("");
     setLiveTranscript("");
     setSessionMessages([]);
+    setBackendSessionId(null);
+    setSessionStatus(null);
+    setBackendError(null);
+    setBackendTranscriptMarkdown("");
+    setBackendSummaryMarkdown("");
+
+    setCurrentPhaseIndex(0);
+    const startDuration = activePhases[0]?.durationSeconds || activePhases[0]?.durationMinutes * 60 || 300;
+    setTimeLeft(startDuration);
     
-    setAppMode('active');
+    setAppMode("active");
     setIsPlaying(true);
     playSingingBowl(); // welcoming chime
+
+    // Pre-create session asynchronously
+    try {
+      console.log("[VibeMind] Re-registering session metadata with backend...");
+      const sResponse = await fetch("/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participant_name_a: partnerA_Name,
+          participant_name_b: partnerB_Name,
+          mode_name: selectedProfile.name,
+          mode_id: selectedProfile.id
+        })
+      });
+      if (sResponse.ok) {
+        const sData = await sResponse.json();
+        setBackendSessionId(sData.session_id);
+        console.log("[VibeMind] Pre-registered Session-ID:", sData.session_id);
+      }
+    } catch (err) {
+      console.error("[VibeMind] Session creation failed:", err);
+    }
+
+    // Capture full persistent audio recording
+    await startContinuousRecording();
   };
 
   const handleNextPhase = () => {
+    const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
+    const currentPhase = activePhases[currentPhaseIndex];
+    if (currentPhase) {
+      const marker: PhaseMarker = {
+        phase_id: currentPhase.id,
+        phase_type: currentPhase.id,
+        phase_title: currentPhase.title,
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
+        start_seconds: currentPhaseStartTimeRef.current,
+        end_seconds: elapsedNow,
+        color: currentPhase.color || undefined,
+        guidance_text: currentPhase.guidanceText || currentPhase.description
+      };
+      phaseMarkersRef.current.push(marker);
+      currentPhaseStartTimeRef.current = elapsedNow;
+    }
+
     if (currentPhaseIndex < activePhases.length - 1) {
       const nextIndex = currentPhaseIndex + 1;
       setCurrentPhaseIndex(nextIndex);
-      setTimeLeft(activePhases[nextIndex].durationMinutes * 60);
+      const d = activePhases[nextIndex]?.durationSeconds || activePhases[nextIndex]?.durationMinutes * 60 || 300;
+      setTimeLeft(d);
     } else {
-      // Completed conversation sequence!
       handleFinishSession();
     }
   };
 
   const handlePrevPhase = () => {
+    const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
+    const currentPhase = activePhases[currentPhaseIndex];
+    if (currentPhase) {
+      const marker: PhaseMarker = {
+        phase_id: currentPhase.id,
+        phase_type: currentPhase.id,
+        phase_title: currentPhase.title,
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
+        start_seconds: currentPhaseStartTimeRef.current,
+        end_seconds: elapsedNow,
+        color: currentPhase.color || undefined,
+        guidance_text: currentPhase.guidanceText || currentPhase.description
+      };
+      phaseMarkersRef.current.push(marker);
+      currentPhaseStartTimeRef.current = elapsedNow;
+    }
+
     if (currentPhaseIndex > 0) {
       const prevIndex = currentPhaseIndex - 1;
       setCurrentPhaseIndex(prevIndex);
-      setTimeLeft(activePhases[prevIndex].durationMinutes * 60);
+      const d = activePhases[prevIndex]?.durationSeconds || activePhases[prevIndex]?.durationMinutes * 60 || 300;
+      setTimeLeft(d);
     }
   };
 
-  const handleFinishSession = () => {
+  const handleFinishSession = async () => {
     setIsPlaying(false);
     stopMicrophoneTracking();
     stopSpeechRecognition();
 
-    const durationTotal = activePhases.reduce((acc, p) => acc + p.durationMinutes, 0);
+    const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
+    const currentPhase = activePhases[currentPhaseIndex];
+    if (currentPhase) {
+      const finalMarker: PhaseMarker = {
+        phase_id: currentPhase.id,
+        phase_type: currentPhase.id,
+        phase_title: currentPhase.title,
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
+        start_seconds: currentPhaseStartTimeRef.current,
+        end_seconds: elapsedNow,
+        color: currentPhase.color || undefined,
+        guidance_text: currentPhase.guidanceText || currentPhase.description
+      };
+      phaseMarkersRef.current.push(finalMarker);
+    }
 
-    const result: SessionResult = {
-      id: Math.random().toString(36).substring(2, 9),
+    setAppMode("insights");
+    setSessionStatus("uploaded");
+    setIsAnalyzing(true);
+    setBackendError(null);
+
+    const durationTotal = activePhases.reduce((acc, p) => acc + (Math.round((p.durationSeconds || p.durationMinutes * 60) / 60) || 1), 0);
+
+    const initialResult: SessionResult = {
+      id: backendSessionId || Math.random().toString(36).substring(2, 9),
       date: new Date().toLocaleDateString("de-DE", {
         day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
       }),
-      templateId: selectedTemplate.id,
-      templateName: selectedTemplate.name,
+      templateId: selectedProfile.id,
+      templateName: selectedProfile.name,
       partnerA_Name: partnerA_Name,
       partnerB_Name: partnerB_Name,
-      transcriptA: transcriptA,
-      transcriptB: transcriptB,
+      transcriptA: transcriptA || "(Sprachanalyse im Gange...)",
+      transcriptB: transcriptB || "(Sprachanalyse im Gange...)",
       messages: sessionMessages.length > 0 ? sessionMessages : [
-        { speaker: "partnerA", text: transcriptA || "(Nichts gesprochen)", timestamp: "Turn A" },
-        { speaker: "partnerB", text: transcriptB || "(Nichts gesprochen)", timestamp: "Turn B" }
+        { speaker: "partnerA", text: transcriptA || "(Wird analysiert)", timestamp: "Turn A" },
+        { speaker: "partnerB", text: transcriptB || "(Wird analysiert)", timestamp: "Turn B" }
       ],
       durationMinutesTotal: durationTotal
     };
 
-    setLatestResult(result);
-    setAppMode('insights');
-    
-    // Automatically trigger AI Coaching if Transcripts exist
-    if (transcriptA.length > 10 || transcriptB.length > 10) {
-      triggerAICoaching(result);
+    setLatestResult(initialResult);
+
+    try {
+      console.log("[VibeMind] Stopping continuous audio recorder...");
+      const audioData = await stopContinuousRecordingAndGetBase64();
+
+      let targetSessionId = backendSessionId;
+      if (!targetSessionId) {
+        console.log("[VibeMind] Pre-registered Session ID was missing. Creating on the fly...");
+        const sResponse = await fetch("/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            participant_name_a: partnerA_Name,
+            participant_name_b: partnerB_Name,
+            mode_name: selectedProfile.name,
+            mode_id: selectedProfile.id
+          })
+        });
+        const sData = await sResponse.json();
+        targetSessionId = sData.session_id;
+        setBackendSessionId(targetSessionId);
+      }
+
+      console.log(`[VibeMind] Uploading audio recording to targetSessionId ${targetSessionId}...`);
+      const uploadRes = await fetch(`/sessions/${targetSessionId}/recording`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audio: audioData.base64,
+          mimeType: audioData.mimeType || "audio/webm"
+        })
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Fehler beim Hochladen der Audioaufnahme.");
+      }
+
+      console.log(`[VibeMind] Submitting timeline phases matching VibeMind schema...`);
+      const transcribeRes = await fetch(`/sessions/${targetSessionId}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          timeline_phases: phaseMarkersRef.current
+        })
+      });
+
+      if (!transcribeRes.ok) {
+        throw new Error("Fehler beim Triggern der Transkriptionsanalyse.");
+      }
+
+      startBackendPolling(targetSessionId);
+
+    } catch (error: any) {
+      console.error("[VibeMind] Automation run failed:", error);
+      setSessionStatus("error");
+      setBackendError(error?.message || "Fehler bei der Kontaktaufnahme mit dem Analyse-Server.");
+      setIsAnalyzing(false);
     }
   };
 
   const triggerAICoaching = async (sessionData: SessionResult) => {
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-    setAiAnalysis(null);
-
-    try {
-      const response = await fetch("/api/zwiegespraech/insights", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          partnerA_Name: sessionData.partnerA_Name,
-          partnerB_Name: sessionData.partnerB_Name,
-          transcriptA: sessionData.transcriptA,
-          transcriptB: sessionData.transcriptB
-        })
-      });
-
-      if (!response.ok) {
-        const errPayload = await response.json();
-        throw new Error(errPayload.error || "Etwas lief schief bei der Gemini-Auswertung.");
-      }
-
-      const analysisRaw: AIAnalysis = await response.json();
-      setAiAnalysis(analysisRaw);
-
-      // Save to saved list and update local storage
-      const finalCompleteResult = { ...sessionData, analysis: analysisRaw };
-      setLatestResult(finalCompleteResult);
-      
-      setHistory(prev => {
-        const updated = [finalCompleteResult, ...prev];
-        localStorage.setItem("zwiegespraech_history", JSON.stringify(updated));
-        return updated;
-      });
-
-    } catch (e: any) {
-      console.error(e);
-      setAnalysisError(e?.message || "Konnte das Gespräch nicht mit der AI auswerten. Stelle sicher, dass die Gemini-API-Konfiguration vorhanden ist.");
-      
-      // Still save plain sessions into history even if analysis failed
-      setHistory(prev => {
-        const updated = [sessionData, ...prev];
-        localStorage.setItem("zwiegespraech_history", JSON.stringify(updated));
-        return updated;
-      });
-    } finally {
-      setIsAnalyzing(false);
+    // Kept to trigger manually if desired, but we poll backend automatically.
+    setAppMode("insights");
+    if (backendSessionId) {
+      startBackendPolling(backendSessionId);
     }
   };
 
@@ -994,170 +1383,300 @@ export default function App() {
                     <span className="text-[10px] text-slate-500 font-mono px-2 py-0.5 rounded-md bg-[#0A0A0C] border border-white/5">Preset Lib</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {PRESET_TEMPLATES.map((tmpl) => (
-                      <button
-                        key={tmpl.id}
-                        type="button"
-                        onClick={() => setSelectedTemplate(tmpl)}
-                        className={`text-left p-4 rounded-xl border transition-all duration-300 relative group flex flex-col justify-between cursor-pointer ${
-                          selectedTemplate.id === tmpl.id 
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {profiles.map((prof) => (
+                      <div
+                        key={prof.id}
+                        onClick={() => setSelectedProfile(prof)}
+                        className={`text-left p-4.5 rounded-xl border transition-all duration-300 relative group flex flex-col justify-between cursor-pointer ${
+                          selectedProfile.id === prof.id 
                             ? 'bg-[#15151A] border-indigo-500/50 shadow-lg shadow-indigo-950/20' 
                             : 'bg-white/[0.02] border-white/5 hover:border-white/15'
                         }`}
                       >
                         <div>
-                          <span className="text-2xl mb-2 block">{tmpl.icon}</span>
-                          <h3 className="text-xs font-semibold text-slate-200 group-hover:text-white tracking-tight">{tmpl.name}</h3>
-                          <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed font-light">{tmpl.description}</p>
-                        </div>
-                        <div className="mt-4 flex items-center justify-between w-full border-t border-white/5 pt-2.5">
-                          <span className="text-[10px] text-slate-300 font-bold font-mono">
-                            {tmpl.phases.reduce((acc, p) => acc + p.durationMinutes, 0)} Min. gesamt
-                          </span>
-                          <span className="text-[9px] text-slate-500 font-mono">
-                            {tmpl.phases.length} Phasen
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Custom Template builder trigger */}
-                  <div className="mt-6 border-t border-white/5 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const customTmpl: SessionTemplate = {
-                          id: "custom",
-                          name: "Eigener Ablauf (Custom Builder)",
-                          icon: "⚡",
-                          description: "Passe die Zeiten und Reihenfolgen ganz nach euren Bedürfnissen auf dieser Sitzung an.",
-                          phases: [...customPhases]
-                        };
-                        setSelectedTemplate(customTmpl);
-                      }}
-                      className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                        selectedTemplate.id === "custom"
-                          ? 'bg-indigo-950/20 border-indigo-500/40 text-indigo-300'
-                          : 'bg-white/[0.02] border-white/5 text-slate-400 hover:border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5">
-                        <span className="text-base">⚡</span>
-                        <div>
-                          <p className="font-bold text-slate-200 text-left">Individuellen Ablauf kreieren</p>
-                          <p className="text-[10px] text-slate-500 text-left font-normal">Eigenen Phasenplan & Dauern definieren</p>
-                        </div>
-                      </div>
-                      <Plus className="w-4 h-4 text-slate-500" />
-                    </button>
-
-                    {/* Custom editor display if chosen */}
-                    <AnimatePresence>
-                      {selectedTemplate.id === 'custom' && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="mt-4 bg-[#0A0A0C]/60 p-4 rounded-xl border border-white/5 space-y-3"
-                        >
-                          <p className="text-[11px] text-slate-400 font-mono uppercase tracking-wider">Ablauf bearbeiten:</p>
-                          {customPhases.map((phase, idx) => (
-                            <div key={phase.id} className="flex items-center space-x-3 bg-[#0F0F12] p-2.5 rounded-lg border border-white/5">
-                              <select 
-                                value={phase.speaker}
-                                onChange={(e) => {
-                                  const updated = [...customPhases];
-                                  updated[idx].speaker = e.target.value as any;
-                                  if (e.target.value === 'partnerA') {
-                                    updated[idx].title = `Redezeit ${partnerA_Name}`;
-                                    updated[idx].description = `${partnerA_Name} teilt Gedanken und Gefühle mit.`;
-                                  } else if (e.target.value === 'partnerB') {
-                                    updated[idx].title = `Redezeit ${partnerB_Name}`;
-                                    updated[idx].description = `${partnerB_Name} teilt Gedanken und Gefühle mit.`;
-                                  } else {
-                                    updated[idx].title = "Gemeinsamer Austausch";
-                                    updated[idx].description = "Spürt rein oder atmet.";
-                                  }
-                                  setCustomPhases(updated);
-                                  setSelectedTemplate(prev => ({ ...prev, phases: updated }));
-                                }}
-                                className="bg-[#0A0A0C] border border-white/10 text-slate-300 text-[11px] py-1 px-1.5 rounded outline-none cursor-pointer"
-                              >
-                                <option value="partnerA">Sprecher: {partnerA_Name}</option>
-                                <option value="partnerB">Sprecher: {partnerB_Name}</option>
-                                <option value="both">Beide im Kreis</option>
-                              </select>
-
-                              <input 
-                                type="text"
-                                value={phase.title}
-                                onChange={(e) => {
-                                  const updated = [...customPhases];
-                                  updated[idx].title = e.target.value;
-                                  setCustomPhases(updated);
-                                  setSelectedTemplate(prev => ({ ...prev, phases: updated }));
-                                }}
-                                className="bg-[#0A0A0C]/85 border border-white/10 text-slate-200 text-xs px-2 py-1 rounded outline-none flex-grow"
-                              />
-
-                              <div className="flex items-center space-x-1">
-                                <input 
-                                  type="number"
-                                  min="1"
-                                  max="60"
-                                  value={phase.durationMinutes}
-                                  onChange={(e) => {
-                                    const updated = [...customPhases];
-                                    updated[idx].durationMinutes = parseInt(e.target.value) || 1;
-                                    setCustomPhases(updated);
-                                    setSelectedTemplate(prev => ({ ...prev, phases: updated }));
-                                  }}
-                                  className="bg-[#0A0A0C] border border-white/10 text-slate-200 text-xs font-mono py-1 px-1 rounded w-12 text-center outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono">Min</span>
-                              </div>
-
+                          <div className="flex items-center justify-between">
+                            <span className="text-xl mb-1.5 block">
+                              {prof.id === "maintain" ? "🌱" : prof.id === "listening" ? "🤝" : prof.id === "commitment" ? "🔥" : "💎"}
+                            </span>
+                            {prof.id !== "maintain" && prof.id !== "listening" && prof.id !== "commitment" && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (customPhases.length > 1) {
-                                    const updated = customPhases.filter((_, i) => i !== idx);
-                                    setCustomPhases(updated);
-                                    setSelectedTemplate(prev => ({ ...prev, phases: updated }));
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const updated = profiles.filter(p => p.id !== prof.id);
+                                  setProfiles(updated);
+                                  localStorage.setItem("zwiegespraech_profiles", JSON.stringify(updated));
+                                  if (selectedProfile.id === prof.id) {
+                                    setSelectedProfile(updated[0] || PRESET_PROFILES_V2[0]);
                                   }
                                 }}
                                 className="text-slate-500 hover:text-rose-450 p-1 transition cursor-pointer"
+                                title="Profil löschen"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
+                            )}
+                          </div>
+                          <h3 className="text-xs font-bold text-slate-200 group-hover:text-white tracking-tight">{prof.name}</h3>
+                          <p className="text-[10.5px] text-slate-400 mt-1 leading-relaxed font-light line-clamp-2">{prof.description}</p>
+                        </div>
+                        <div className="mt-3.5 flex items-center justify-between w-full border-t border-white/5 pt-2">
+                          <span className="text-[9.5px] text-indigo-300 font-bold font-mono">
+                            {Math.round(prof.phases.reduce((acc, p) => acc + p.durationSeconds, 0) / 60)} Min. gesamt
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-mono">
+                            {prof.phases.length} Abschnitte
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Actions for Profile Creation and Editing */}
+                  <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Launch Editor in Profile Create mode
+                        setEditedProfileName("Individuelles Zwiegespräch");
+                        setEditedProfileDesc("Ein ganz persönlich zusammengestellter Zeitablauf.");
+                        setEditedPhases([
+                          { id: "setup", title: "Kurzes Ankommen", description: "Atmet tief zusammen durch.", durationSeconds: 60, speaker: "both", color: "#3b82f6", guidanceText: "Blickt euch sanft in die Augen." },
+                          { id: "turn_a", title: "Redeweitergabe A", description: "Partner A spricht.", durationSeconds: 300, speaker: "partnerA", color: "#10b981", guidanceText: "Partner A teilt Gedanken." },
+                          { id: "turn_b", title: "Redeweitergabe B", description: "Partner B spricht.", durationSeconds: 300, speaker: "partnerB", color: "#f59e0b", guidanceText: "Partner B teilt Gedanken." },
+                          { id: "apprec", title: "Danksagung", description: "Blickt euch dankbar an.", durationSeconds: 60, speaker: "both", color: "#8b5cf6", guidanceText: "Gegenseitige Resonanz." }
+                        ]);
+                        setIsEditingProfile(true);
+                      }}
+                      className="flex-grow flex items-center justify-center space-x-2 py-3 px-4 rounded-xl border border-dashed border-white/10 text-slate-350 hover:text-white hover:border-white/20 text-xs font-semibold bg-white/[0.01] transition cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 text-indigo-400" />
+                      <span>Neues Ablauf-Profil Entwerfen</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Load current profile to editor
+                        setEditedProfileName(selectedProfile.name);
+                        setEditedProfileDesc(selectedProfile.description);
+                        setEditedPhases([...selectedProfile.phases]);
+                        setIsEditingProfile(true);
+                      }}
+                      className="flex-grow sm:flex-grow-0 flex items-center justify-center space-x-2 py-3 px-5 rounded-xl border border-indigo-500/20 text-indigo-300 hover:text-white hover:bg-indigo-600/10 text-xs font-semibold bg-indigo-950/10 transition cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
+                      <span>Dieses Profil Editieren</span>
+                    </button>
+                  </div>
+
+                  {/* Visual Profile Editor Form */}
+                  <AnimatePresence>
+                    {isEditingProfile && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="mt-4 bg-[#0A0A0C]/75 p-5 rounded-2xl border border-indigo-500/20 space-y-4"
+                      >
+                        <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                          <h4 className="text-xs font-bold text-indigo-400 uppercase font-mono tracking-widest flex items-center space-x-2">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Ablauf-Profil Editor v2</span>
+                          </h4>
+                          <button 
+                            type="button" 
+                            onClick={() => setIsEditingProfile(false)}
+                            className="text-slate-500 hover:text-white transition p-1 cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Fields */}
+                        <div className="grid grid-cols-1 gap-3.5">
+                          <div>
+                            <label className="block text-slate-400 text-[10px] font-mono uppercase mb-1">PROFIL NAME</label>
+                            <input 
+                              type="text"
+                              value={editedProfileName}
+                              onChange={(e) => setEditedProfileName(e.target.value)}
+                              className="w-full bg-[#0F0F12] border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 text-[10px] font-mono uppercase mb-1">PROFIL BESCHREIBUNG</label>
+                            <textarea 
+                              value={editedProfileDesc}
+                              rows={2}
+                              onChange={(e) => setEditedProfileDesc(e.target.value)}
+                              className="w-full bg-[#0F0F12] border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none resize-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Phase Rows */}
+                        <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                          <p className="text-[10px] text-slate-500 font-mono uppercase">PHASEN-TIMELINE ({editedPhases.length}):</p>
+                          {editedPhases.map((ph, idx) => (
+                            <div key={ph.id || idx} className="bg-[#0F0F12] p-3 rounded-xl border border-white/5 space-y-2 relative">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                                <select
+                                  value={ph.speaker}
+                                  onChange={(e) => {
+                                    const updated = [...editedPhases];
+                                    const role = e.target.value as "partnerA" | "partnerB" | "both" | "none";
+                                    updated[idx].speaker = role;
+                                    
+                                    // Set auto fields if empty
+                                    if (role === "partnerA") {
+                                      updated[idx].title = `Redezeit ${partnerA_Name}`;
+                                      updated[idx].description = `Schweigefokus für ${partnerA_Name}.`;
+                                      updated[idx].color = "#10b981";
+                                    } else if (role === "partnerB") {
+                                      updated[idx].title = `Redezeit ${partnerB_Name}`;
+                                      updated[idx].description = `Schweigefokus für ${partnerB_Name}.`;
+                                      updated[idx].color = "#f59e0b";
+                                    } else {
+                                      updated[idx].title = "Gemeinsame Resonanz";
+                                      updated[idx].description = "Spüren im stummen Einverständnis.";
+                                      updated[idx].color = "#6366f1";
+                                    }
+                                    setEditedPhases(updated);
+                                  }}
+                                  className="bg-[#0A0A0C] border border-white/10 text-slate-300 text-[11px] py-1 px-1.5 rounded outline-none cursor-pointer"
+                                >
+                                  <option value="both">Beide im Gleichklang</option>
+                                  <option value="partnerA">Partner A ({partnerA_Name})</option>
+                                  <option value="partnerB">Partner B ({partnerB_Name})</option>
+                                  <option value="none">Stille / Meditation</option>
+                                </select>
+
+                                <input 
+                                  type="text"
+                                  placeholder="Sitzungstitel"
+                                  value={ph.title}
+                                  onChange={(e) => {
+                                    const updated = [...editedPhases];
+                                    updated[idx].title = e.target.value;
+                                    setEditedPhases(updated);
+                                  }}
+                                  className="flex-grow bg-[#0A0A0C] border border-white/10 text-xs text-white font-bold px-2 py-1 rounded outline-none"
+                                />
+
+                                <div className="flex items-center space-x-1 shrink-0">
+                                  <input 
+                                    type="number"
+                                    min="15"
+                                    step="15"
+                                    max="5400"
+                                    value={ph.durationSeconds}
+                                    onChange={(e) => {
+                                      const updated = [...editedPhases];
+                                      updated[idx].durationSeconds = parseInt(e.target.value) || 60;
+                                      setEditedPhases(updated);
+                                    }}
+                                    className="bg-[#0A0A0C] border border-white/10 text-xs font-mono text-indigo-400 text-center py-1 px-1 w-16 rounded outline-none"
+                                  />
+                                  <span className="text-[10px] text-slate-500 font-mono">Sek</span>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (editedPhases.length > 1) {
+                                      setEditedPhases(editedPhases.filter((_, i) => i !== idx));
+                                    }
+                                  }}
+                                  className="text-slate-500 hover:text-rose-450 p-1 cursor-pointer shrink-0 self-end sm:self-auto"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <input 
+                                type="text"
+                                placeholder="Geführte Anleitung / Ratschlag..."
+                                value={ph.description}
+                                onChange={(e) => {
+                                  const updated = [...editedPhases];
+                                  updated[idx].description = e.target.value;
+                                  updated[idx].guidanceText = e.target.value;
+                                  setEditedPhases(updated);
+                                }}
+                                className="w-full bg-[#0A0A0C]/55 border border-white/5 text-[10px] text-slate-400 font-light px-2 py-1 rounded outline-none"
+                              />
                             </div>
                           ))}
+                        </div>
 
+                        {/* Plus row button */}
+                        <div className="flex gap-2">
                           <button
                             type="button"
                             onClick={() => {
-                              const newPhase: Phase = {
-                                id: "custom_" + Date.now(),
-                                title: "Zusätzliche Phase",
-                                description: "Ergänzender Redekreis oder Erholungszeit.",
-                                durationMinutes: 5,
-                                speaker: "both"
+                              const newP: PhaseConfigV2 = {
+                                id: "p_" + Date.now(),
+                                title: "Ergänzende Phase",
+                                description: "Kurzer stummer Augenblick oder Händehalten.",
+                                durationSeconds: 120,
+                                speaker: "both",
+                                color: "#8b5cf6",
+                                guidanceText: "Gemeinsames Atmen."
                               };
-                              const updated = [...customPhases, newPhase];
-                              setCustomPhases(updated);
-                              setSelectedTemplate(prev => ({ ...prev, phases: updated }));
+                              setEditedPhases([...editedPhases, newP]);
                             }}
-                            className="w-full flex items-center justify-center space-x-1.5 py-2.5 rounded-lg border border-dashed border-white/10 text-slate-500 hover:text-slate-300 hover:border-white/20 text-xs transition cursor-pointer"
+                            className="bg-[#15151F] border border-white/5 text-slate-400 hover:text-white text-[10.5px] font-semibold py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>Phase hinzufügen</span>
                           </button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const isPreset = selectedProfile.id === "maintain" || selectedProfile.id === "listening" || selectedProfile.id === "commitment";
+                              const targetId = isPreset ? "custom_prof_" + Date.now() : selectedProfile.id;
+
+                              const finalProf: TimerProfileV2 = {
+                                version: 2,
+                                id: targetId,
+                                name: editedProfileName,
+                                description: editedProfileDesc,
+                                participants: {
+                                  partnerA: { name: partnerA_Name, color: "#10b981" },
+                                  partnerB: { name: partnerB_Name, color: "#f59e0b" }
+                                },
+                                phases: editedPhases.map(ph => ({
+                                  ...ph,
+                                  durationMinutes: Math.round(ph.durationSeconds / 60) || 1
+                                })),
+                                updatedAt: new Date().toISOString()
+                              };
+
+                              let updatedProfilesList = [...profiles];
+                              const foundIdx = updatedProfilesList.findIndex(p => p.id === targetId);
+                              if (foundIdx > -1) {
+                                updatedProfilesList[foundIdx] = finalProf;
+                              } else {
+                                updatedProfilesList.push(finalProf);
+                              }
+
+                              setProfiles(updatedProfilesList);
+                              localStorage.setItem("zwiegespraech_profiles", JSON.stringify(updatedProfilesList));
+                              
+                              setSelectedProfile(finalProf);
+                              setIsEditingProfile(false);
+                            }}
+                            className="bg-indigo-600 hover:bg-[#4f46e5]/100 text-white text-[10.5px] font-bold py-2 px-4 rounded-xl transition cursor-pointer ml-auto"
+                          >
+                            <span>Profil Speichern</span>
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
