@@ -419,8 +419,6 @@ export default function App() {
   const apiBaseUrl = import.meta.env.VITE_VIBEMIND_API_URL as string | undefined;
   const vibemindClient = React.useMemo(() => apiBaseUrl ? new VibeMindClient(apiBaseUrl) : null, [apiBaseUrl]);
   const vibemind = useVibeMindSession(vibemindClient);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const sessionStartTimeRef = useRef<number>(0);
   const currentPhaseStartTimeRef = useRef<number>(0);
   const phaseMarkersRef = useRef<PhaseMarker[]>([]);
@@ -883,58 +881,6 @@ export default function App() {
   };
 
   // Continuous dynamic audio recording utilities for VibeMind
-  const startContinuousRecording = async () => {
-    audioChunksRef.current = [];
-    phaseMarkersRef.current = [];
-    sessionStartTimeRef.current = Date.now();
-    currentPhaseStartTimeRef.current = 0;
-    
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach(track => track.stop());
-      };
-      recorder.start(1000); // chunk every second
-      mediaRecorderRef.current = recorder;
-      console.log("[AudioRecorder] Successfully started continuous media recording. Session Start:", sessionStartTimeRef.current);
-    } catch (err) {
-      console.error("[AudioRecorder] Failed to start MediaRecorder:", err);
-    }
-  };
-
-  const stopContinuousRecordingAndGetBase64 = (): Promise<{ base64: string, mimeType: string }> => {
-    return new Promise((resolve) => {
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
-        resolve({ base64: "", mimeType: "audio/webm" });
-        return;
-      }
-      
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        if (mediaRecorderRef.current?.stream) {
-          mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
-        }
-        
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = (reader.result as string).split(",")[1];
-          resolve({ base64: base64String, mimeType: "audio/webm" });
-        };
-        reader.onerror = () => {
-          resolve({ base64: "", mimeType: "audio/webm" });
-        };
-        reader.readAsDataURL(audioBlob);
-      };
-      
-      mediaRecorderRef.current.stop();
-    });
-  };
 
   const startBackendPolling = (sessionId: string) => {
     setSessionStatus("transcribing");
@@ -1097,7 +1043,6 @@ export default function App() {
     }
 
     // Capture full persistent audio recording
-    await startContinuousRecording();
   };
 
   const handleNextPhase = () => {
@@ -1207,7 +1152,7 @@ export default function App() {
 
     try {
       console.log("[VibeMind] Stopping continuous audio recorder...");
-      const audioData = await stopContinuousRecordingAndGetBase64();
+      // Audio processing is now handled by the hook
 
       let targetSessionId = backendSessionId;
       if (!targetSessionId) {
@@ -1232,8 +1177,8 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          audio: audioData.base64,
-          mimeType: audioData.mimeType || "audio/webm"
+          audio: "",
+          mimeType: "audio/webm"
         })
       });
 
@@ -1734,6 +1679,23 @@ export default function App() {
                       {activePhases.reduce((acc, p) => acc + p.durationMinutes, 0)}m Gesamtzeit
                     </span>
                   </div>
+
+                  {(() => {
+                    const totalDurationSeconds = activePhases.reduce((acc, p) => acc + (p.durationSeconds || (p.durationMinutes * 60)), 0);
+                    const elapsedPreviousPhasesSeconds = activePhases.slice(0, currentPhaseIndex).reduce((acc, p) => acc + (p.durationSeconds || (p.durationMinutes * 60)), 0);
+                    const currentPhaseDurationSeconds = activePhases[currentPhaseIndex] ? (activePhases[currentPhaseIndex].durationSeconds || (activePhases[currentPhaseIndex].durationMinutes * 60)) : 0;
+                    const currentPhaseElapsedSeconds = Math.max(0, currentPhaseDurationSeconds - timeLeft);
+                    const totalElapsedSeconds = elapsedPreviousPhasesSeconds + currentPhaseElapsedSeconds;
+                    const cumulativeProgressPercent = totalDurationSeconds > 0 ? (totalElapsedSeconds / totalDurationSeconds) * 100 : 0;
+                    return (
+                        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-indigo-500 transition-all duration-500" 
+                            style={{width: `${Math.min(100, Math.max(0, cumulativeProgressPercent))}%`}} 
+                          />
+                        </div>
+                    );
+                  })()}
 
                   <div className="relative pl-3 border-l devotion-gradient border-white/5 space-y-5">
                     {activePhases.map((phase, idx) => {
