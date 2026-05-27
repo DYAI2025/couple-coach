@@ -57,6 +57,10 @@ import { VibeMindClient } from "./api/vibemindClient";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useVibeMindSession } from "./hooks/useVibeMindSession";
 import { ProfileStore } from "./services/profileStore";
+import { BackendConnectionBanner } from "./components/BackendConnectionBanner";
+import { SessionStatusPanel } from "./components/SessionStatusPanel";
+import { ReportDownloads } from "./components/ReportDownloads";
+import { PrivacyConsentCard } from "./components/PrivacyConsentCard";
 
 // Standard preset profiles compatible with VibeMind V2 database definitions
 const PRESET_PROFILES_V2: TimerProfileV2[] = [
@@ -350,20 +354,15 @@ function SelfReflectionTrendChart({ result, partnerAName, partnerBName, theme }:
 export default function App() {
   // Profiles configuration & LocalStorage Persistence
   const [profiles, setProfiles] = useState<TimerProfileV2[]>(() => {
-    const saved = localStorage.getItem("zwiegespraech_profiles");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.error("Could not parse saved custom profiles:", e);
-      }
-    }
+    const store = new ProfileStore();
+    const saved = store.loadProfiles();
+    if (saved && saved.length > 0) return saved;
     return PRESET_PROFILES_V2;
   });
 
   const [selectedProfile, setSelectedProfile] = useState<TimerProfileV2>(() => {
-    const savedId = localStorage.getItem("zwiegespraech_selected_profile_id");
+    const store = new ProfileStore();
+    const savedId = store.loadActiveProfileId();
     if (savedId) {
       const found = profiles.find(p => p.id === savedId);
       if (found) return found;
@@ -405,14 +404,18 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('theme', theme);
+    document.body.classList.remove('theme-light', 'theme-dark');
+    document.body.classList.add(`theme-${theme}`);
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   const [editedProfileName, setEditedProfileName] = useState("");
   const [editedProfileDesc, setEditedProfileDesc] = useState("");
+  const [editedSummaryPrompt, setEditedSummaryPrompt] = useState("");
   const [editedPhases, setEditedPhases] = useState<PhaseConfigV2[]>([]);
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isConsentAccepted, setIsConsentAccepted] = useState(false);
 
   const [profileStore] = React.useState(() => new ProfileStore());
 
@@ -502,7 +505,7 @@ export default function App() {
         }))
       });
 
-      localStorage.setItem("zwiegespraech_selected_profile_id", selectedProfile.id);
+      profileStore.saveActiveProfileId(selectedProfile.id);
     }
   }, [selectedProfile]);
 
@@ -880,128 +883,16 @@ export default function App() {
     }
   };
 
-  // Continuous dynamic audio recording utilities for VibeMind
-
-  const startBackendPolling = (sessionId: string) => {
-    setSessionStatus("transcribing");
-    setIsAnalyzing(true);
-    setBackendError(null);
-
-    let attempts = 0;
-    const pollInterval = setInterval(async () => {
-      attempts++;
-      if (attempts > 60) {
-        clearInterval(pollInterval);
-        setSessionStatus("error");
-        setBackendError("Analyse-Timeout. Bitte lade die Seite neu.");
-        setIsAnalyzing(false);
-        return;
-      }
-
-      try {
-        const response = await fetch(`/sessions/${sessionId}`);
-        if (!response.ok) {
-          throw new Error("VibeMind Session Status-Check fehlgeschlagen.");
-        }
-
-        const data: SessionDetailResponse = await response.json();
-        setSessionStatus(data.status);
-
-        if (data.status === "done") {
-          clearInterval(pollInterval);
-          console.log(`[VibeMind] Processing finished! Loading final transcripts for ${sessionId}`);
-
-          const [transRes, sumRes] = await Promise.all([
-            fetch(`/sessions/${sessionId}/transcript.md`),
-            fetch(`/sessions/${sessionId}/summary.md`)
-          ]);
-
-          const transMd = await transRes.text();
-          const sumMd = await sumRes.text();
-
-          setBackendTranscriptMarkdown(transMd);
-          setBackendSummaryMarkdown(sumMd);
-
-          let turnsList: any[] = [];
-          let concatedA = "";
-          let concatedB = "";
-
-          if (data.transcript && data.transcript.turns) {
-            turnsList = data.transcript.turns.map(turn => ({
-              speaker: turn.speaker as any,
-              text: turn.text,
-              timestamp: `${Math.floor(turn.start_seconds / 60).toString().padStart(2, "0")}:${Math.round(turn.start_seconds % 60).toString().padStart(2, "0")}`,
-              phaseType: turn.phase_type
-            }));
-
-            concatedA = data.transcript.turns.filter(t => t.speaker === "partnerA").map(t => t.text).join(" ");
-            concatedB = data.transcript.turns.filter(t => t.speaker === "partnerB").map(t => t.text).join(" ");
-          }
-
-          const updatedAnalysis: AIAnalysis = {
-            ichBotschaftenScore: {
-              partnerA: 78,
-              partnerB: 72
-            },
-            keyThemes: ["Achtsames Zwiegespräch", "Gefühlsklärung", "Resonanz"],
-            summary: "Eine gelungene und emotional aufrichtige Zwiegesprächsrunde.",
-            appreciationHighlights: {
-              partnerA: ["Hat das Innenleben offen und ruhig formuliert."],
-              partnerB: ["Hat einen sicheren und stummen Resonanzkörper gebildet."]
-            },
-            actionableTips: [
-              "Führt den strukturierten Dialogue idealerweise einmal wöchentlich fort.",
-              "Nutzt die gewonnenen Insights, um ohne Verteidigungsdrang im Herzen nachzuspüren."
-            ]
-          };
-
-          const durationTotal = activePhases.reduce((acc, p) => acc + (Math.round((p.durationSeconds || p.durationMinutes * 60) / 60) || 1), 0);
-
-          const finalResult: SessionResult = {
-            id: sessionId,
-            date: new Date(data.created_at || Date.now()).toLocaleDateString("de-DE", {
-              day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
-            }),
-            templateId: selectedProfile.id,
-            templateName: selectedProfile.name,
-            partnerA_Name: partnerA_Name,
-            partnerB_Name: partnerB_Name,
-            transcriptA: concatedA || "(Keine Redezeit aufgezeichnet)",
-            transcriptB: concatedB || "(Keine Redezeit aufgezeichnet)",
-            messages: turnsList.length > 0 ? turnsList : [
-              { speaker: "partnerA", text: concatedA || "(Kein aufgezeichneter Text)", timestamp: "Turn A" },
-              { speaker: "partnerB", text: concatedB || "(Kein aufgezeichneter Text)", timestamp: "Turn B" }
-            ],
-            durationMinutesTotal: durationTotal,
-            analysis: updatedAnalysis
-          };
-
-          setLatestResult(finalResult);
-          setAiAnalysis(updatedAnalysis);
-          setIsAnalyzing(false);
-
-          setHistory(prev => {
-            const hasId = prev.some(h => h.id === sessionId);
-            if (hasId) return prev;
-            const updated = [finalResult, ...prev];
-            localStorage.setItem("zwiegespraech_history", JSON.stringify(updated));
-            return updated;
-          });
-
-        } else if (data.status === "error") {
-          clearInterval(pollInterval);
-          setBackendError(data.error || "Unerwarteter Systemfehler bei der Analyse.");
-          setIsAnalyzing(false);
-        }
-      } catch (err: any) {
-        console.warn("[VibeMind] Polling error cycle:", err);
-      }
-    }, 2500);
-  };
+  // Continuous dynamic audio recording utilities for VibeMind (handled by useVibeMindSession hook)
 
   // Timer phase switches
   const handleStartSession = async () => {
-    // Reset transcripts and messages list
+    // Check if consent has been accepted if running with active backend
+    if (vibemindClient && !isConsentAccepted) {
+      console.warn("Audio recording consent not accepted yet.");
+      return;
+    }
+
     setTranscriptA("");
     setTranscriptB("");
     setLiveTranscript("");
@@ -1020,84 +911,39 @@ export default function App() {
     setIsPlaying(true);
     playSingingBowl(); // welcoming chime
 
-    // Pre-create session asynchronously
-    try {
-      console.log("[VibeMind] Re-registering session metadata with backend...");
-      const sResponse = await fetch("/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          participant_name_a: partnerA_Name,
-          participant_name_b: partnerB_Name,
-          mode_name: selectedProfile.name,
-          mode_id: selectedProfile.id
-        })
-      });
-      if (sResponse.ok) {
-        const sData = await sResponse.json();
-        setBackendSessionId(sData.session_id);
-        console.log("[VibeMind] Pre-registered Session-ID:", sData.session_id);
-      }
-    } catch (err) {
-      console.error("[VibeMind] Session creation failed:", err);
-    }
+    sessionStartTimeRef.current = Date.now();
+    currentPhaseStartTimeRef.current = 0;
 
-    // Capture full persistent audio recording
+    // Utilize target module useVibeMindSession
+    await vibemind.start(selectedProfile);
+    vibemind.markPhaseStart(selectedProfile.phases[0], 0);
   };
 
   const handleNextPhase = () => {
     const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
-    const currentPhase = activePhases[currentPhaseIndex];
-    if (currentPhase) {
-      const marker: PhaseMarker = {
-        phase_id: currentPhase.id,
-        phase_type: currentPhase.id,
-        phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
-        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
-        start_seconds: currentPhaseStartTimeRef.current,
-        end_seconds: elapsedNow,
-        color: currentPhase.color || undefined,
-        guidance_text: currentPhase.guidanceText || currentPhase.description
-      };
-      phaseMarkersRef.current.push(marker);
-      currentPhaseStartTimeRef.current = elapsedNow;
-    }
+    vibemind.markPhaseEnd(elapsedNow);
 
     if (currentPhaseIndex < activePhases.length - 1) {
       const nextIndex = currentPhaseIndex + 1;
       setCurrentPhaseIndex(nextIndex);
       const d = activePhases[nextIndex]?.durationSeconds || activePhases[nextIndex]?.durationMinutes * 60 || 300;
       setTimeLeft(d);
+      
+      vibemind.markPhaseStart(selectedProfile.phases[nextIndex], elapsedNow);
     } else {
       handleFinishSession();
     }
   };
 
   const handlePrevPhase = () => {
-    const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
-    const currentPhase = activePhases[currentPhaseIndex];
-    if (currentPhase) {
-      const marker: PhaseMarker = {
-        phase_id: currentPhase.id,
-        phase_type: currentPhase.id,
-        phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
-        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
-        start_seconds: currentPhaseStartTimeRef.current,
-        end_seconds: elapsedNow,
-        color: currentPhase.color || undefined,
-        guidance_text: currentPhase.guidanceText || currentPhase.description
-      };
-      phaseMarkersRef.current.push(marker);
-      currentPhaseStartTimeRef.current = elapsedNow;
-    }
-
     if (currentPhaseIndex > 0) {
       const prevIndex = currentPhaseIndex - 1;
       setCurrentPhaseIndex(prevIndex);
       const d = activePhases[prevIndex]?.durationSeconds || activePhases[prevIndex]?.durationMinutes * 60 || 300;
       setTimeLeft(d);
+      
+      // TODO: Backwards navigation in VibeMind phase markers is currently UI-only.
+      console.warn("VibeMind: Backwards phase transitioning is UI-only to prevent duplicate/overlapping phase markers.");
     }
   };
 
@@ -1107,31 +953,11 @@ export default function App() {
     stopSpeechRecognition();
 
     const elapsedNow = Math.max(0, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
-    const currentPhase = activePhases[currentPhaseIndex];
-    if (currentPhase) {
-      const finalMarker: PhaseMarker = {
-        phase_id: currentPhase.id,
-        phase_type: currentPhase.id,
-        phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
-        speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
-        start_seconds: currentPhaseStartTimeRef.current,
-        end_seconds: elapsedNow,
-        color: currentPhase.color || undefined,
-        guidance_text: currentPhase.guidanceText || currentPhase.description
-      };
-      phaseMarkersRef.current.push(finalMarker);
-    }
-
     setAppMode("insights");
-    setSessionStatus("uploaded");
-    setIsAnalyzing(true);
-    setBackendError(null);
 
     const durationTotal = activePhases.reduce((acc, p) => acc + (Math.round((p.durationSeconds || p.durationMinutes * 60) / 60) || 1), 0);
-
     const initialResult: SessionResult = {
-      id: backendSessionId || Math.random().toString(36).substring(2, 9),
+      id: vibemind.state.sessionId || "local_" + Math.random().toString(36).substring(2, 9),
       date: new Date().toLocaleDateString("de-DE", {
         day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
       }),
@@ -1139,82 +965,27 @@ export default function App() {
       templateName: selectedProfile.name,
       partnerA_Name: partnerA_Name,
       partnerB_Name: partnerB_Name,
-      transcriptA: transcriptA || "(Sprachanalyse im Gange...)",
-      transcriptB: transcriptB || "(Sprachanalyse im Gange...)",
-      messages: sessionMessages.length > 0 ? sessionMessages : [
-        { speaker: "partnerA", text: transcriptA || "(Wird analysiert)", timestamp: "Turn A" },
-        { speaker: "partnerB", text: transcriptB || "(Wird analysiert)", timestamp: "Turn B" }
-      ],
+      transcriptA: isConsentAccepted ? transcriptA : "",
+      transcriptB: isConsentAccepted ? transcriptB : "",
+      messages: isConsentAccepted ? sessionMessages : [],
       durationMinutesTotal: durationTotal
     };
 
     setLatestResult(initialResult);
+    setHistory(prev => {
+      const hasId = prev.some(h => h.id === initialResult.id);
+      if (hasId) return prev;
+      const updated = [initialResult, ...prev];
+      localStorage.setItem("zwiegespraech_history", JSON.stringify(updated));
+      return updated;
+    });
 
-    try {
-      console.log("[VibeMind] Stopping continuous audio recorder...");
-      // Audio processing is now handled by the hook
-
-      let targetSessionId = backendSessionId;
-      if (!targetSessionId) {
-        console.log("[VibeMind] Pre-registered Session ID was missing. Creating on the fly...");
-        const sResponse = await fetch("/sessions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            participant_name_a: partnerA_Name,
-            participant_name_b: partnerB_Name,
-            mode_name: selectedProfile.name,
-            mode_id: selectedProfile.id
-          })
-        });
-        const sData = await sResponse.json();
-        targetSessionId = sData.session_id;
-        setBackendSessionId(targetSessionId);
-      }
-
-      console.log(`[VibeMind] Uploading audio recording to targetSessionId ${targetSessionId}...`);
-      const uploadRes = await fetch(`/sessions/${targetSessionId}/recording`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audio: "",
-          mimeType: "audio/webm"
-        })
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error("Fehler beim Hochladen der Audioaufnahme.");
-      }
-
-      console.log(`[VibeMind] Submitting timeline phases matching VibeMind schema...`);
-      const transcribeRes = await fetch(`/sessions/${targetSessionId}/transcribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timeline_phases: phaseMarkersRef.current
-        })
-      });
-
-      if (!transcribeRes.ok) {
-        throw new Error("Fehler beim Triggern der Transkriptionsanalyse.");
-      }
-
-      startBackendPolling(targetSessionId);
-
-    } catch (error: any) {
-      console.error("[VibeMind] Automation run failed:", error);
-      setSessionStatus("error");
-      setBackendError(error?.message || "Fehler bei der Kontaktaufnahme mit dem Analyse-Server.");
-      setIsAnalyzing(false);
-    }
+    await vibemind.finish(elapsedNow);
   };
 
   const triggerAICoaching = async (sessionData: SessionResult) => {
-    // Kept to trigger manually if desired, but we poll backend automatically.
     setAppMode("insights");
-    if (backendSessionId) {
-      startBackendPolling(backendSessionId);
-    }
+    console.log("VibeMind is already processing this session, state will follow the central hook.");
   };
 
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
@@ -1314,8 +1085,12 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.35, ease: "easeOut" }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
+              className="space-y-6 w-full"
             >
+              {/* Connection Status Header Banner */}
+              <BackendConnectionBanner apiBaseUrl={apiBaseUrl} />
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Left Column: Partners & Session Presets */}
               <div className="lg:col-span-7 space-y-7">
                 {/* Partner Information Card */}
@@ -1382,7 +1157,7 @@ export default function App() {
                                   e.stopPropagation();
                                   const updated = profiles.filter(p => p.id !== prof.id);
                                   setProfiles(updated);
-                                  localStorage.setItem("zwiegespraech_profiles", JSON.stringify(updated));
+                                  profileStore.saveProfiles(updated);
                                   if (selectedProfile.id === prof.id) {
                                     setSelectedProfile(updated[0] || PRESET_PROFILES_V2[0]);
                                   }
@@ -1417,6 +1192,7 @@ export default function App() {
                         // Launch Editor in Profile Create mode
                         setEditedProfileName("Individuelles Zwiegespräch");
                         setEditedProfileDesc("Ein ganz persönlich zusammengestellter Zeitablauf.");
+                        setEditedSummaryPrompt("");
                         setEditedPhases([
                           { id: "setup", title: "Kurzes Ankommen", description: "Atmet tief zusammen durch.", durationSeconds: 60, speaker: "both", color: "#3b82f6", guidanceText: "Blickt euch sanft in die Augen." },
                           { id: "turn_a", title: "Redeweitergabe A", description: "Partner A spricht.", durationSeconds: 300, speaker: "partnerA", color: "#10b981", guidanceText: "Partner A teilt Gedanken." },
@@ -1437,6 +1213,7 @@ export default function App() {
                         // Load current profile to editor
                         setEditedProfileName(selectedProfile.name);
                         setEditedProfileDesc(selectedProfile.description);
+                        setEditedSummaryPrompt(selectedProfile.summaryPromptMarkdown || "");
                         setEditedPhases([...selectedProfile.phases]);
                         setIsEditingProfile(true);
                       }}
@@ -1490,6 +1267,35 @@ export default function App() {
                               className="w-full bg-[#0F0F12] border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 outline-none resize-none"
                             />
                           </div>
+                        </div>
+
+                        {/* Collapsible Advanced Profile Settings */}
+                        <div className="border border-white/5 bg-[#0F0F12]/30 rounded-xl overflow-hidden">
+                          <details className="group">
+                            <summary className="flex items-center justify-between p-3.5 cursor-pointer select-none text-slate-400 hover:text-slate-200">
+                              <span className="text-[10px] font-mono uppercase tracking-widest font-bold flex items-center gap-2">
+                                🛠️ HINTERGRUND-PROMPTS FÜR DIE SITZUNG
+                              </span>
+                              <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+                            </summary>
+                            <div className="p-3.5 border-t border-white/5 space-y-3 bg-[#0F0F12]/50">
+                              <div>
+                                <label className="block text-slate-400 text-[9px] font-mono uppercase mb-1">
+                                  Zusammenfassungs-Prompt (System Prompt Markdown)
+                                </label>
+                                <textarea
+                                  value={editedSummaryPrompt}
+                                  rows={4}
+                                  onChange={(e) => setEditedSummaryPrompt(e.target.value)}
+                                  placeholder="Eigener System-Prompt für die KI-Zusammenfassung nach dem Gespräch (optional)..."
+                                  className="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-300 placeholder-slate-600 outline-none font-mono"
+                                />
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                  Hiermit können Sie steuern, wie das Backend Ihre Ergebnisse strukturiert und analysiert.
+                                </p>
+                              </div>
+                            </div>
+                          </details>
                         </div>
 
                         {/* Phase Rows */}
@@ -1582,18 +1388,31 @@ export default function App() {
                                 </button>
                               </div>
 
-                              <input 
-                                type="text"
-                                placeholder="Geführte Anleitung / Ratschlag..."
-                                value={ph.description}
-                                onChange={(e) => {
-                                  const updated = [...editedPhases];
-                                  updated[idx].description = e.target.value;
-                                  updated[idx].guidanceText = e.target.value;
-                                  setEditedPhases(updated);
-                                }}
-                                className="w-full bg-[#0A0A0C]/55 border border-white/5 text-[10px] text-slate-400 font-light px-2 py-1 rounded outline-none"
-                              />
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <input 
+                                  type="text"
+                                  placeholder="Geführte Anleitung / Ratschlag..."
+                                  value={ph.description}
+                                  onChange={(e) => {
+                                    const updated = [...editedPhases];
+                                    updated[idx].description = e.target.value;
+                                    updated[idx].guidanceText = e.target.value;
+                                    setEditedPhases(updated);
+                                  }}
+                                  className="w-full bg-[#0A0A0C]/55 border border-white/5 text-[10px] text-slate-400 font-light px-2 py-1 rounded outline-none"
+                                />
+                                <input 
+                                  type="text"
+                                  placeholder="KI-Prompt Kontext (z.B. Fokus auf Atmen)..."
+                                  value={ph.promptContext || ""}
+                                  onChange={(e) => {
+                                    const updated = [...editedPhases];
+                                    updated[idx].promptContext = e.target.value;
+                                    setEditedPhases(updated);
+                                  }}
+                                  className="w-full bg-[#0A0A0C]/55 border border-white/5 text-[10px] text-indigo-400/80 font-light px-2 py-1 rounded outline-none font-mono"
+                                />
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1639,6 +1458,7 @@ export default function App() {
                                   ...ph,
                                   durationMinutes: Math.round(ph.durationSeconds / 60) || 1
                                 })),
+                                summaryPromptMarkdown: editedSummaryPrompt,
                                 updatedAt: new Date().toISOString()
                               };
 
@@ -1651,7 +1471,7 @@ export default function App() {
                               }
 
                               setProfiles(updatedProfilesList);
-                              localStorage.setItem("zwiegespraech_profiles", JSON.stringify(updatedProfilesList));
+                              profileStore.saveProfiles(updatedProfilesList);
                               
                               setSelectedProfile(finalProf);
                               setIsEditingProfile(false);
@@ -1761,20 +1581,35 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* PRIVACY CONSENT CARD */}
+                  <div className="pt-2">
+                    <PrivacyConsentCard
+                      accepted={isConsentAccepted}
+                      onChange={setIsConsentAccepted}
+                      isBackendActive={!!apiBaseUrl}
+                    />
+                  </div>
+
                   {/* LARGE ACTION START BUTTON */}
                   <button
                     type="button"
                     onClick={handleStartSession}
-                    className="w-full py-4 rounded-xl bg-indigo-600 font-bold text-sm tracking-wide text-white hover:bg-indigo-500 transition shadow-lg shadow-indigo-600/10 hover:shadow-indigo-600/20 active:scale-[0.98] transform flex items-center justify-center space-x-2 cursor-pointer"
+                    disabled={!isConsentAccepted}
+                    className={`w-full py-4 rounded-xl font-bold text-sm tracking-wide text-white transition shadow-lg transform flex items-center justify-center space-x-2 ${
+                      isConsentAccepted 
+                        ? 'bg-indigo-600 hover:bg-indigo-505 hover:shadow-indigo-600/20 active:scale-[0.98] cursor-pointer' 
+                        : 'bg-indigo-950/20 text-slate-500 border border-white/5 cursor-not-allowed'
+                    }`}
                   >
-                    <Play className="w-4 h-4 fill-current text-white" />
-                    <span>Zwiegespräch jetzt starten</span>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>{isConsentAccepted ? "Zwiegespräch jetzt starten" : "Bitte Einwilligung bestätigen"}</span>
                   </button>
                   
                   <p className="text-[10.5px] text-center text-stone-500">
                     Macht es euch gemütlich, stellt euer Gerät dazwischen und atmet durch.
                   </p>
                 </div>
+              </div>
               </div>
             </motion.div>
           )}
@@ -2067,6 +1902,8 @@ export default function App() {
                                     </select>
 
                                     <span className="text-slate-500 font-mono text-[9.5px] pl-1">{msg.timestamp}</span>
+                                    
+                                    <span className="text-[8.5px] px-1.5 py-0.5 bg-white/5 text-slate-400 border border-white/10 rounded font-mono select-none uppercase tracking-wider" title="Korrektur betrifft nur die lokale Vorschau">Vorschau-Korrektur</span>
                                   </div>
 
                                   {/* On-Demand translation quick trigger options */}
@@ -2136,9 +1973,10 @@ export default function App() {
                               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
                             </span>
                             <span className="text-slate-300 font-medium font-mono">Live-Sprech-Echtzeitfoyer</span>
+                            <span className="px-1.5 py-0.5 rounded text-[8.5px] font-sans font-semibold tracking-wider uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">Vorschau</span>
                           </div>
                           
-                          <span className="text-slate-500 font-mono text-[9.5px]">Aktivierte Tonspur</span>
+                          <span className="text-slate-500 font-mono text-[9.5px]">Echtzeit-Mitschrift</span>
                         </div>
 
                         {/* Audio Wave Form Canvas */}
@@ -2179,203 +2017,52 @@ export default function App() {
                 <p className="text-xs text-slate-500 font-mono">Gemeinsame Zeit stärkt Beziehungen · {latestResult.date}</p>
               </div>
 
-              {/* Status indicator on AI analyzing */}
-              <AnimatePresence mode="wait">
-                {isAnalyzing && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="bg-[#0F0F12] rounded-2xl p-8 border border-white/5 text-center space-y-4"
-                  >
-                    <div className="relative w-12 h-12 mx-auto">
-                      <div className="absolute inset-0 rounded-full border-4 border-indigo-950" />
-                      <div className="absolute inset-0 rounded-full border-4 border-indigo-400 border-t-transparent animate-spin" />
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-bold text-slate-200">Gemini analysiert euer Zwiegespräch...</h4>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                        Die Reden werden auf Gefühlsbetonung (Ich-Botschaften) untersucht und psychologische Schlüsselthemen extrahiert.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {analysisError && !isAnalyzing && (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="bg-red-500/10 rounded-2xl p-5 border border-red-550/25 flex items-start space-x-3 text-left"
-                  >
-                    <AlertCircle className="w-5 h-5 text-rose-450 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-xs font-bold text-rose-300">AI-Coaching aktuell eingeschränkt</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                        {analysisError} Die Audiotranskripte wurden trotzdem lokal gespeichert. Du kannst das Coaching manuell erneut anfordern.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => triggerAICoaching(latestResult)}
-                        className="mt-3 px-3 py-1.5 rounded-lg bg-[#0A0A0C] border border-white/10 text-slate-200 text-xs font-bold hover:bg-white/5 transition flex items-center space-x-1.5 cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Insights berechnen</span>
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Display AI Results if available */}
-              {aiAnalysis && (
+              {/* VibeMind Status and Results Section */}
+              {vibemind.state.status !== "done" ? (
+                <SessionStatusPanel
+                  status={vibemind.state.status}
+                  backendStatus={vibemind.state.backendStatus}
+                  sessionId={vibemind.state.sessionId}
+                  error={vibemind.state.error}
+                />
+              ) : (
                 <div className="space-y-6">
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.99 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch"
-                  >
-                    {/* Left big card: Summary & Scores */}
-                    <div className="md:col-span-7 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
-                      <div className="space-y-4">
-                        <div className="flex items-center space-x-2">
-                          <Sparkles className="w-5 h-5 text-indigo-400" />
-                          <h3 className="text-base font-bold text-slate-200">Achtsamkeits &amp; Sprach-Insights</h3>
-                        </div>
-                        
-                        <div className="bg-[#0A0A0C]/60 p-4.5 rounded-xl border border-white/5">
-                          <p className="text-xs text-slate-350 leading-relaxed font-light italic">
-                            &quot;{aiAnalysis.summary}&quot;
-                          </p>
-                        </div>
-
-                        {/* Score Bars for Ich-Botschaften */}
-                        <div className="space-y-4 pt-2">
-                          <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Sprechstil-Analyse (&quot;Ich-Botschaften-Fokus&quot;)</p>
-                          
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-emerald-400">{partnerA_Name}</span>
-                              <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerA}% I-Meldungen</span>
-                            </div>
-                            <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-gradient-to-r from-emerald-600 to-teal-400 rounded-full transition-all duration-1000" 
-                                style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerA}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-amber-400">{partnerB_Name}</span>
-                              <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerB}% I-Meldungen</span>
-                            </div>
-                            <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full transition-all duration-1000" 
-                                style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerB}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-4 border-t border-white/5 flex flex-wrap gap-2">
-                        {aiAnalysis.keyThemes.map((theme, idx) => (
-                          <span key={idx} className="text-[10px] font-mono font-semibold px-2.5 py-1 rounded bg-[#0A0A0C] text-indigo-400 border border-indigo-900/30">
-                            #{theme}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Right Column: Coaching Advice & Highlights */}
-                    <div className="md:col-span-5 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
-                      <div className="space-y-4">
-                        <div className="flex items-center space-x-2">
-                          <Heart className="w-5 h-5 text-indigo-400 fill-indigo-500/10" />
-                          <h3 className="text-base font-bold text-slate-200">Sprech-Glanzlichter (Vulnerabilität)</h3>
-                        </div>
-
-                        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                          {aiAnalysis.appreciationHighlights.partnerA.map((hl, i) => (
-                            <div key={i} className="bg-emerald-500/5 border-l-2 border-emerald-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
-                              <span className="font-semibold text-emerald-400 shrink-0 block mb-0.5">{partnerA_Name} teilte mit:</span>
-                              &quot;{hl}&quot;
-                            </div>
-                          ))}
-                          {aiAnalysis.appreciationHighlights.partnerB.map((hl, i) => (
-                            <div key={i} className="bg-amber-500/5 border-l-2 border-amber-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
-                              <span className="font-semibold text-amber-300 shrink-0 block mb-0.5">{partnerB_Name} teilte mit:</span>
-                              &quot;{hl}&quot;
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-[#0A0A0C]/50 p-3.5 rounded-xl border border-white/5 space-y-2">
-                        <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest font-bold">Coaching Empfehlungen</p>
-                        <ul className="space-y-2">
-                          {aiAnalysis.actionableTips.map((tip, idx) => (
-                            <li key={idx} className="text-[11px] text-slate-400 leading-relaxed flex items-start space-x-1.5">
-                              <span className="text-indigo-400 shrink-0 mt-0.5">•</span>
-                              <span>{tip}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  <SelfReflectionTrendChart 
-                    result={latestResult}
-                    partnerAName={partnerA_Name}
-                    partnerBName={partnerB_Name}
-                    theme={theme}
+                  {/* Report Download Toolbar */}
+                  <ReportDownloads
+                    sessionId={vibemind.state.sessionId || latestResult.id}
+                    transcriptMarkdown={vibemind.state.transcriptMarkdown || backendTranscriptMarkdown}
+                    summaryMarkdown={vibemind.state.summaryMarkdown || backendSummaryMarkdown}
+                    pdfSupported={vibemind.state.pdfSupported}
+                    client={vibemindClient}
                   />
+
+                  {/* Summary Visual Markdown */}
+                  {(vibemind.state.summaryMarkdown || backendSummaryMarkdown) && (
+                    <div className="bg-[#0F0F12] rounded-2xl p-6 border border-[#a855f7]/20 space-y-4 text-left shadow-lg shadow-[#a855f7]/5">
+                      <div className="flex items-center space-x-2 pb-3 border-b border-white/5">
+                        <Sparkles className="w-5 h-5 text-indigo-400" />
+                        <h3 className="text-base font-bold text-slate-200">Kollaborative Zusammenfassung &amp; Coaching</h3>
+                      </div>
+                      <div className="prose prose-invert max-w-none text-slate-300 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-light">
+                        {vibemind.state.summaryMarkdown || backendSummaryMarkdown}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Transcription Markdown */}
+                  {(vibemind.state.transcriptMarkdown || backendTranscriptMarkdown) && (
+                    <div className="bg-[#0F0F12] rounded-2xl p-6 border border-white/5 space-y-4 text-left">
+                      <div className="flex items-center space-x-2 pb-3 border-b border-white/5">
+                        <BookOpen className="w-5 h-5 text-indigo-300" />
+                        <h3 className="text-base font-bold text-slate-200">Gesprächsprotokoll (Transkript)</h3>
+                      </div>
+                      <div className="prose prose-invert max-w-none text-slate-300 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-mono max-h-96 overflow-y-auto pr-2">
+                        {vibemind.state.transcriptMarkdown || backendTranscriptMarkdown}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-
-              {/* Full Raw Transcription Explorer */}
-              <div className="bg-[#0F0F12] rounded-2xl p-6 border border-white/5 space-y-6 text-left">
-                <div className="flex items-center justify-between pb-3 border-b border-white/5">
-                  <h3 className="text-sm font-bold text-slate-200 flex items-center space-x-2">
-                    <BookOpen className="w-4 h-4 text-indigo-400" />
-                    <span>Vollständiges Zwiegespräch-Transkript ({selectedTemplate.name})</span>
-                  </h3>
-                  <span className="text-[10px] font-mono text-slate-500 px-2 py-0.5 rounded bg-[#0A0A0C] border border-white/5">
-                    {latestResult.transcriptA.split(" ").length + latestResult.transcriptB.split(" ").length} Total Wörter
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Left Partner Transcript */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono flex items-center">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1.5 animate-pulse"></span>
-                      <span>{partnerA_Name}</span>
-                    </p>
-                    <div className="p-4 bg-[#0A0A0C]/60 rounded-xl border border-white/5 min-h-40 max-h-80 overflow-y-auto text-slate-300 text-xs sm:text-sm leading-relaxed whitespace-pre-line font-light">
-                      {latestResult.transcriptA || (
-                        <span className="text-slate-600 block text-center italic py-10">Kein Text erfasst im Turn von {partnerA_Name}.</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right Partner Transcript */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-amber-400 uppercase tracking-wider font-mono flex items-center">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 inline-block mr-1.5 animate-pulse"></span>
-                      <span>{partnerB_Name}</span>
-                    </p>
-                    <div className="p-4 bg-[#0A0A0C]/60 rounded-xl border border-white/5 min-h-40 max-h-80 overflow-y-auto text-slate-300 text-xs sm:text-sm leading-relaxed whitespace-pre-line font-light">
-                      {latestResult.transcriptB || (
-                        <span className="text-slate-600 block text-center italic py-10">Kein Text erfasst im Turn von {partnerB_Name}.</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* Action Buttons to restart */}
               <div className="flex justify-center space-x-4 pt-4">

@@ -20,13 +20,17 @@ body {
 }
 
 .theme-light {
-  --bg-body: #ffffff;
-  --text-body: #1e293b;
+  --bg-body: #f0fdf4; /* pastel green */
+  --text-body: #064e3b; /* dark green */
+  --bg-card: #f0f9ff; /* pastel light blue */
+  --border-card: #f59e0b; /* ochre/amber */
 }
 
 .theme-dark {
   --bg-body: #0A0A0C;
   --text-body: #CBD5E1;
+  --bg-card: #151518;
+  --border-card: #26262a;
 }
 
 
