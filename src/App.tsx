@@ -52,6 +52,10 @@ import {
   TranscriptTurn, 
   SessionDetailResponse 
 } from "./types/vibemind";
+import { VibeMindClient } from "./api/vibemindClient";
+import { ThemeToggle } from "./components/ThemeToggle";
+import { useVibeMindSession } from "./hooks/useVibeMindSession";
+import { ProfileStore } from "./services/profileStore";
 
 // Standard preset profiles compatible with VibeMind V2 database definitions
 const PRESET_PROFILES_V2: TimerProfileV2[] = [
@@ -245,8 +249,8 @@ function SelfReflectionTrendChart({ result, partnerAName, partnerBName }: SelfRe
   };
 
   return (
-    <div className="bg-[#0F0F12] rounded-2xl p-6 border border-white/5 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5 bg-transparent">
+    <div className={`min-h-screen ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+      <div className="bg-[#0F0F12] rounded-b-3xl p-6 border-b border-white/5 space-y-6">
         <div className="space-y-1 text-left">
           <h3 className="text-sm font-bold text-slate-200 flex items-center space-x-2">
             <BarChart2 className="w-4 h-4 text-indigo-400" />
@@ -395,6 +399,15 @@ export default function App() {
 
   // Editor states for customizing or creating profile
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   const [editedProfileName, setEditedProfileName] = useState("");
   const [editedProfileDesc, setEditedProfileDesc] = useState("");
   const [editedPhases, setEditedPhases] = useState<PhaseConfigV2[]>([]);
@@ -1291,6 +1304,9 @@ export default function App() {
  
       {/* HEADER BAR */}
       <header className="w-full max-w-6xl px-6 py-5 mx-auto flex items-center justify-between border-b border-white/5 bg-[#0F0F12]/50 backdrop-blur-md rounded-2xl mt-4 z-30">
+        <div className="flex items-center space-x-2">
+           <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+        </div>
         <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setAppMode('setup')}>
           <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-950/50">
             <Heart className="w-5 h-5 text-white fill-white" />
@@ -1322,6 +1338,15 @@ export default function App() {
           >
             <History className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Verlauf ({history.length})</span>
+          </button>
+        </div>
+        <div className="flex items-center space-x-2">
+          <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+          <button
+            className="md:hidden p-2 text-slate-400 hover:text-white"
+            onClick={() => { /* mobile menu toggle */ }}
+          >
+            <Languages className="w-5 h-5" />
           </button>
         </div>
       </header>
@@ -1566,6 +1591,17 @@ export default function App() {
                                 />
 
                                 <div className="flex items-center space-x-1 shrink-0">
+                                  <input 
+                                    type="color"
+                                    value={ph.color || "#6366f1"}
+                                    onChange={(e) => {
+                                      const updated = [...editedPhases];
+                                      updated[idx].color = e.target.value;
+                                      setEditedPhases(updated);
+                                    }}
+                                    className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 p-0"
+                                    title="Phasen-Akzentfarbe wählen"
+                                  />
                                   <input 
                                     type="number"
                                     min="15"

@@ -8,10 +8,27 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: #0A0A0C; /* Elegant Dark space black */
-  color: #CBD5E1; /* text-slate-300 */
+  background-color: var(--bg-body);
+  color: var(--text-body);
   overflow-x: hidden;
+  transition: background-color 0.3s, color 0.3s;
 }
+
+:root {
+  --bg-body: #0A0A0C;
+  --text-body: #CBD5E1;
+}
+
+.theme-light {
+  --bg-body: #ffffff;
+  --text-body: #1e293b;
+}
+
+.theme-dark {
+  --bg-body: #0A0A0C;
+  --text-body: #CBD5E1;
+}
+
 
 /* Custom styles for custom communication stream path */
 .devotion-gradient {
