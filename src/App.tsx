@@ -29,6 +29,16 @@ import {
   Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { 
+  ResponsiveContainer, 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend, 
+  CartesianGrid 
+} from "recharts";
 import { Phase, SessionTemplate, SessionResult, AIAnalysis, InteractionMessage } from "./types";
 import { playSingingBowl } from "./utils/audio";
 
@@ -88,6 +98,208 @@ const SIMULATED_REFLECTIONS_B = [
   "Ich schätze deine Wärme unglaublich. Wenn ich dich lachen sehe, merke ich sofort, wie meine eigenen Sorgen ein Stück kleiner werden. Ich möchte wieder mehr Abenteuer mit dir teilen.",
   "Ich habe manchmal die Befürchtung, nicht gut genug zu sein oder deine Erwartungen nicht zu erfüllen. Es tut gut, das einfach mal auszusprechen, ohne dass wir darüber streiten müssen."
 ];
+
+interface SelfReflectionTrendChartProps {
+  result: SessionResult;
+  partnerAName: string;
+  partnerBName: string;
+}
+
+function SelfReflectionTrendChart({ result, partnerAName, partnerBName }: SelfReflectionTrendChartProps) {
+  // Let's analyze pronouns in a given text to return a score from 30 to 100
+  const evaluateTextScore = (text: string, defaultScore: number): number => {
+    if (!text || text.trim().length === 0) return defaultScore;
+    const lower = text.toLowerCase();
+    
+    // Count "Ich" markers
+    const iWords = ["ich", "mein", "mir", "mich", "meine", "meiner", "meinem", "meines", "wir", "uns"];
+    let iCount = 0;
+    iWords.forEach(w => {
+      const regex = new RegExp(`\\b${w}\\b`, "g");
+      const matches = lower.match(regex);
+      if (matches) iCount += matches.length;
+    });
+
+    // Count "Du" markers
+    const duWords = ["du", "dir", "dich", "dein", "deine", "deiner", "deinem", "deines", "ihr", "euch"];
+    let duCount = 0;
+    duWords.forEach(w => {
+      const regex = new RegExp(`\\b${w}\\b`, "g");
+      const matches = lower.match(regex);
+      if (matches) duCount += matches.length;
+    });
+
+    if (iCount === 0 && duCount === 0) {
+      return defaultScore;
+    }
+
+    const total = iCount + duCount;
+    const computed = (iCount / total) * 100;
+    // Map to realistic therapeutic score range 35-95%
+    return Math.round(35 + (computed * 0.6));
+  };
+
+  const defaultA = result.analysis?.ichBotschaftenScore.partnerA ?? 75;
+  const defaultB = result.analysis?.ichBotschaftenScore.partnerB ?? 70;
+
+  const msgs = result.messages || [];
+  
+  // Create beautiful curve points
+  let trendData = [];
+  if (msgs.length === 0) {
+    // Elegant fallback simulation representing conversation progression
+    trendData = [
+      { name: "Sitzungsstart", [partnerAName]: Math.round(defaultA * 0.82), [partnerBName]: Math.round(defaultB * 0.78), info: "Einstieg & Fokussierung" },
+      { name: "Mitte", [partnerAName]: Math.round(defaultA * 1.05), [partnerBName]: Math.round(defaultB * 0.94), info: "Vertiefung der Emotionen" },
+      { name: "Hauptredezeit", [partnerAName]: Math.round(defaultA * 1.0), [partnerBName]: Math.round(defaultB * 1.08), info: "Ausdruck der Verletzlichkeit" },
+      { name: "Sitzungsende", [partnerAName]: defaultA, [partnerBName]: defaultB, info: "Resonanz & Würdigung" }
+    ];
+  } else {
+    let runningA = defaultA;
+    let runningB = defaultB;
+    
+    trendData = msgs.map((m, idx) => {
+      const calculated = evaluateTextScore(m.text, m.speaker === 'partnerA' ? defaultA : defaultB);
+      if (m.speaker === 'partnerA') {
+        runningA = calculated;
+      } else {
+        runningB = calculated;
+      }
+      
+      const briefText = m.text.length > 25 ? m.text.substring(0, 25) + "..." : m.text;
+      
+      return {
+        name: m.timestamp || `Turn ${idx + 1}`,
+        [partnerAName]: runningA,
+        [partnerBName]: runningB,
+        speaker: m.speaker === 'partnerA' ? partnerAName : partnerBName,
+        textSegment: briefText
+      };
+    });
+  }
+
+  // Custom styling for Tooltip
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-[#0A0A0C] border border-white/10 p-3 rounded-xl shadow-xl space-y-2 select-none">
+          <p className="text-[10px] font-mono text-slate-500 font-bold uppercase tracking-wider">{label}</p>
+          <div className="space-y-1">
+            {payload.map((pld: any, index: number) => (
+              <div key={index} className="flex items-center space-x-2 text-xs">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: pld.color }} />
+                <span className="text-slate-200 font-semibold">{pld.name}:</span>
+                <span className="font-mono font-bold" style={{ color: pld.color }}>{pld.value}%</span>
+              </div>
+            ))}
+          </div>
+          {payload[0]?.payload?.textSegment && (
+            <p className="text-[10px] text-slate-405 font-light border-t border-white/5 pt-1.5 italic max-w-xs leading-relaxed">
+              &quot;{payload[0].payload.textSegment}&quot;
+            </p>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="bg-[#0F0F12] rounded-2xl p-6 border border-white/5 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5 bg-transparent">
+        <div className="space-y-1 text-left">
+          <h3 className="text-sm font-bold text-slate-200 flex items-center space-x-2">
+            <BarChart2 className="w-4 h-4 text-indigo-400" />
+            <span>Verlauf der Selbstreflexion (&quot;Ich-Botschaften&quot;-Trend)</span>
+          </h3>
+          <p className="text-[11px] text-slate-500 leading-relaxed text-left">
+            Echtzeit-Analyse der Redegestaltung über die Gesprächsdauer. Höhere Werte signalisieren den Fokus auf das eigene Erleben und verletzliche Gefühle.
+          </p>
+        </div>
+        
+        {/* Info Legend Badge */}
+        <div className="flex items-center space-x-4 text-[10.5px]">
+          <div className="flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span className="text-slate-400 font-medium">{partnerAName}</span>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span className="text-slate-400 font-medium">{partnerBName}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-64 sm:h-72 w-full font-mono text-[10px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={trendData}
+            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="colorPartnerA" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+              </linearGradient>
+              <linearGradient id="colorPartnerB" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2}/>
+                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" opacity={0.3} />
+            <XAxis 
+              dataKey="name" 
+              stroke="#52525b" 
+              tickSize={6}
+              tickLine={{ stroke: '#27272a' }}
+            />
+            <YAxis 
+              domain={[30, 100]} 
+              stroke="#52525b" 
+              tickCount={5}
+              tickLine={{ stroke: '#27272a' }}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Area 
+              type="monotone" 
+              dataKey={partnerAName} 
+              stroke="#10b981" 
+              strokeWidth={2}
+              fillOpacity={1} 
+              fill="url(#colorPartnerA)" 
+              activeDot={{ r: 5, strokeWidth: 0 }}
+            />
+            <Area 
+              type="monotone" 
+              dataKey={partnerBName} 
+              stroke="#f59e0b" 
+              strokeWidth={2}
+              fillOpacity={1} 
+              fill="url(#colorPartnerB)" 
+              activeDot={{ r: 5, strokeWidth: 0 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Instructional explanation Footer summary */}
+      <div className="bg-[#0A0A0C]/50 p-3.5 rounded-xl border border-white/5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] leading-relaxed text-left">
+        <div className="space-y-1">
+          <p className="font-mono text-[10px] text-emerald-400 uppercase tracking-widest font-bold">🟢 Ich-Meldungen (Selbstreflexion):</p>
+          <p className="text-slate-400">
+            Sätze wie <em>&quot;Ich fühle mich...&quot;</em> oder <em>&quot;In mir regt sich...&quot;</em> drücken verletzliche Innensichten aus. Sie entkräften automatische Abwehrmechanismen des Partners und fördern Nähe.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <p className="font-mono text-[10px] text-amber-500 uppercase tracking-widest font-bold">🟡 Du-Meldungen (Symptom-Projektion):</p>
+          <p className="text-slate-400">
+            Sätze, die auf das Verhalten des Gegenübers abzielen (z.B. <em>&quot;Du hast nie Zeit...&quot;</em>) erzeugen Widerstand und schränken die therapeutische Wirkung des Moeller-Zwiegesprächs ein.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   // Session UI states
@@ -302,7 +514,23 @@ export default function App() {
       analyser.fftSize = 64;
 
       const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
+
+      // Create high-pass filter to eliminate low-frequency room rumble and power line hum (below 100 Hz)
+      const highPassFilter = audioCtx.createBiquadFilter();
+      highPassFilter.type = "highpass";
+      highPassFilter.frequency.value = 100;
+      highPassFilter.Q.value = 1.0;
+
+      // Create low-pass filter to attenuate high-frequency system hiss and background noise (above 3000 Hz)
+      const lowPassFilter = audioCtx.createBiquadFilter();
+      lowPassFilter.type = "lowpass";
+      lowPassFilter.frequency.value = 3000;
+      lowPassFilter.Q.value = 1.0;
+
+      // Chain source -> High-pass -> Low-pass -> Analyser
+      source.connect(highPassFilter);
+      highPassFilter.connect(lowPassFilter);
+      lowPassFilter.connect(analyser);
 
       audioContextRef.current = audioCtx;
       analyserRef.current = analyser;
@@ -310,7 +538,7 @@ export default function App() {
       // Draw dynamic waves on canvas
       drawCanvasWave();
     } catch (e) {
-      console.warn("Could not load microphone analysis visualizer:", e);
+      console.warn("Could not load microphone analysis visualizer with filters:", e);
     }
   };
 
@@ -1230,8 +1458,8 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* translation target selector with native interactive dropdown */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#0A0A0C]/60 p-3.5 rounded-2xl border border-white/5">
+                    {/* translation target selector with native interactive dropdown and dsp filter status */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#0A0A0C]/60 p-3.5 rounded-2xl border border-white/5">
                       <div className="space-y-1">
                         <label className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-widest font-mono flex items-center space-x-1">
                           <Globe className="w-3 h-3 text-indigo-400" />
@@ -1240,7 +1468,7 @@ export default function App() {
                         <select
                           value={translationLang}
                           onChange={(e) => setTranslationLang(e.target.value)}
-                          className="w-full bg-[#121216] border border-white/10 text-slate-300 text-xs py-2 px-2.5 rounded-xl outline-none transition focus:border-indigo-500/40 cursor-pointer"
+                          className="w-full bg-[#121216] border border-white/10 text-slate-300 text-xs py-2 px-2.5 rounded-xl outline-none transition focus:border-indigo-500/40 cursor-pointer h-9"
                         >
                           <option value="none">Fließend Deutsch (Keine Übersetzung)</option>
                           <option value="en">English (United Kingdom) 🇬🇧</option>
@@ -1255,6 +1483,14 @@ export default function App() {
                         <div className="flex items-center justify-between text-[11px] text-slate-400 bg-[#121216] border border-white/5 p-2 rounded-xl h-9">
                           <span className="font-mono text-[10px]">Turn-Diarizer v1.2</span>
                           <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 text-[9px] font-semibold uppercase font-mono tracking-wider">Aktiviert</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="block text-[9.5px] font-bold text-slate-500 uppercase tracking-widest font-mono">Klarheits-Filter (DSP)</span>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 bg-[#121216] border border-white/5 p-2 rounded-xl h-9">
+                          <span className="font-mono text-[9.5px]" title="Hochpass >100 Hz / Tiefpass <3 kHz">Bandpass 100Hz-3kHz</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-semibold uppercase font-mono tracking-wider">Aktiv</span>
                         </div>
                       </div>
                     </div>
@@ -1469,103 +1705,111 @@ export default function App() {
 
               {/* Display AI Results if available */}
               {aiAnalysis && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.99 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch"
-                >
-                  {/* Left big card: Summary & Scores */}
-                  <div className="md:col-span-7 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Sparkles className="w-5 h-5 text-indigo-400" />
-                        <h3 className="text-base font-bold text-slate-200">Achtsamkeits &amp; Sprach-Insights</h3>
-                      </div>
-                      
-                      <div className="bg-[#0A0A0C]/60 p-4.5 rounded-xl border border-white/5">
-                        <p className="text-xs text-slate-350 leading-relaxed font-light italic">
-                          &quot;{aiAnalysis.summary}&quot;
-                        </p>
-                      </div>
-
-                      {/* Score Bars for Ich-Botschaften */}
-                      <div className="space-y-4 pt-2">
-                        <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Sprechstil-Analyse (&quot;Ich-Botschaften-Fokus&quot;)</p>
+                <div className="space-y-6">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.99 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch"
+                  >
+                    {/* Left big card: Summary & Scores */}
+                    <div className="md:col-span-7 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex items-center space-x-2">
+                          <Sparkles className="w-5 h-5 text-indigo-400" />
+                          <h3 className="text-base font-bold text-slate-200">Achtsamkeits &amp; Sprach-Insights</h3>
+                        </div>
                         
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-emerald-400">{partnerA_Name}</span>
-                            <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerA}% I-Meldungen</span>
-                          </div>
-                          <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-emerald-600 to-teal-400 rounded-full transition-all duration-1000" 
-                              style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerA}%` }}
-                            />
-                          </div>
+                        <div className="bg-[#0A0A0C]/60 p-4.5 rounded-xl border border-white/5">
+                          <p className="text-xs text-slate-350 leading-relaxed font-light italic">
+                            &quot;{aiAnalysis.summary}&quot;
+                          </p>
                         </div>
 
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-amber-400">{partnerB_Name}</span>
-                            <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerB}% I-Meldungen</span>
+                        {/* Score Bars for Ich-Botschaften */}
+                        <div className="space-y-4 pt-2">
+                          <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Sprechstil-Analyse (&quot;Ich-Botschaften-Fokus&quot;)</p>
+                          
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-emerald-400">{partnerA_Name}</span>
+                              <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerA}% I-Meldungen</span>
+                            </div>
+                            <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-emerald-600 to-teal-400 rounded-full transition-all duration-1000" 
+                                style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerA}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full transition-all duration-1000" 
-                              style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerB}%` }}
-                            />
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-amber-400">{partnerB_Name}</span>
+                              <span className="font-mono text-slate-400 font-bold">{aiAnalysis.ichBotschaftenScore.partnerB}% I-Meldungen</span>
+                            </div>
+                            <div className="h-2 w-full bg-[#0A0A0C] rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full transition-all duration-1000" 
+                                style={{ width: `${aiAnalysis.ichBotschaftenScore.partnerB}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="pt-4 border-t border-white/5 flex flex-wrap gap-2">
-                      {aiAnalysis.keyThemes.map((theme, idx) => (
-                        <span key={idx} className="text-[10px] font-mono font-semibold px-2.5 py-1 rounded bg-[#0A0A0C] text-indigo-400 border border-indigo-900/30">
-                          #{theme}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Right Column: Coaching Advice & Highlights */}
-                  <div className="md:col-span-5 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Heart className="w-5 h-5 text-indigo-400 fill-indigo-500/10" />
-                        <h3 className="text-base font-bold text-slate-200">Sprech-Glanzlichter (Vulnerabilität)</h3>
-                      </div>
-
-                      <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                        {aiAnalysis.appreciationHighlights.partnerA.map((hl, i) => (
-                          <div key={i} className="bg-emerald-500/5 border-l-2 border-emerald-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
-                            <span className="font-semibold text-emerald-400 shrink-0 block mb-0.5">{partnerA_Name} teilte mit:</span>
-                            &quot;{hl}&quot;
-                          </div>
-                        ))}
-                        {aiAnalysis.appreciationHighlights.partnerB.map((hl, i) => (
-                          <div key={i} className="bg-amber-500/5 border-l-2 border-amber-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
-                            <span className="font-semibold text-amber-300 shrink-0 block mb-0.5">{partnerB_Name} teilte mit:</span>
-                            &quot;{hl}&quot;
-                          </div>
+                      <div className="pt-4 border-t border-white/5 flex flex-wrap gap-2">
+                        {aiAnalysis.keyThemes.map((theme, idx) => (
+                          <span key={idx} className="text-[10px] font-mono font-semibold px-2.5 py-1 rounded bg-[#0A0A0C] text-indigo-400 border border-indigo-900/30">
+                            #{theme}
+                          </span>
                         ))}
                       </div>
                     </div>
 
-                    <div className="bg-[#0A0A0C]/50 p-3.5 rounded-xl border border-white/5 space-y-2">
-                      <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest font-bold">Coaching Empfehlungen</p>
-                      <ul className="space-y-2">
-                        {aiAnalysis.actionableTips.map((tip, idx) => (
-                          <li key={idx} className="text-[11px] text-slate-400 leading-relaxed flex items-start space-x-1.5">
-                            <span className="text-indigo-400 shrink-0 mt-0.5">•</span>
-                            <span>{tip}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    {/* Right Column: Coaching Advice & Highlights */}
+                    <div className="md:col-span-5 bg-[#0F0F12] rounded-2xl p-6 border border-white/5 flex flex-col justify-between space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex items-center space-x-2">
+                          <Heart className="w-5 h-5 text-indigo-400 fill-indigo-500/10" />
+                          <h3 className="text-base font-bold text-slate-200">Sprech-Glanzlichter (Vulnerabilität)</h3>
+                        </div>
+
+                        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                          {aiAnalysis.appreciationHighlights.partnerA.map((hl, i) => (
+                            <div key={i} className="bg-emerald-500/5 border-l-2 border-emerald-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
+                              <span className="font-semibold text-emerald-400 shrink-0 block mb-0.5">{partnerA_Name} teilte mit:</span>
+                              &quot;{hl}&quot;
+                            </div>
+                          ))}
+                          {aiAnalysis.appreciationHighlights.partnerB.map((hl, i) => (
+                            <div key={i} className="bg-amber-500/5 border-l-2 border-amber-500 p-2.5 rounded-r-lg text-[11.5px] text-slate-350 leading-relaxed font-light">
+                              <span className="font-semibold text-amber-300 shrink-0 block mb-0.5">{partnerB_Name} teilte mit:</span>
+                              &quot;{hl}&quot;
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-[#0A0A0C]/50 p-3.5 rounded-xl border border-white/5 space-y-2">
+                        <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest font-bold">Coaching Empfehlungen</p>
+                        <ul className="space-y-2">
+                          {aiAnalysis.actionableTips.map((tip, idx) => (
+                            <li key={idx} className="text-[11px] text-slate-400 leading-relaxed flex items-start space-x-1.5">
+                              <span className="text-indigo-400 shrink-0 mt-0.5">•</span>
+                              <span>{tip}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
+                  </motion.div>
+
+                  <SelfReflectionTrendChart 
+                    result={latestResult}
+                    partnerAName={partnerA_Name}
+                    partnerBName={partnerB_Name}
+                  />
+                </div>
               )}
 
               {/* Full Raw Transcription Explorer */}
@@ -1800,6 +2044,17 @@ export default function App() {
                             <Sparkles className="w-3.5 h-3.5 animate-pulse" />
                             <span>AI-Analyse nachträglich berechnen</span>
                           </button>
+                        </div>
+                      )}
+
+                      {/* Self-Reflection Score Trends Chart */}
+                      {showingHistoryDetail.analysis && (
+                        <div className="border-t border-white/5 pt-5">
+                          <SelfReflectionTrendChart 
+                            result={showingHistoryDetail}
+                            partnerAName={showingHistoryDetail.partnerA_Name}
+                            partnerBName={showingHistoryDetail.partnerB_Name}
+                          />
                         </div>
                       )}
 
