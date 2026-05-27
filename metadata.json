@@ -1,0 +1,6 @@
+{
+  "name": "Zwiegespräch Timer",
+  "description": "Ein moderner, strukturierter Paar-Kommunikations-Timer mit integriertem Transkriptions-Modus zur Förderung verständnisvoller Beziehungen.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
