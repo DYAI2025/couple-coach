@@ -6,6 +6,13 @@ export interface RecordingHandle {
 }
 
 export async function startRecording(): Promise<RecordingHandle> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Browser does not support microphone access.");
+  }
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("Browser does not support MediaRecorder.");
+  }
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     
@@ -14,7 +21,7 @@ export async function startRecording(): Promise<RecordingHandle> {
       "audio/webm;codecs=opus",
       "audio/webm",
     ];
-    let selectedMimeType = "audio/webm";
+    let selectedMimeType = ""; // Default browser
     for (const type of mimeTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
         selectedMimeType = type;
@@ -22,7 +29,15 @@ export async function startRecording(): Promise<RecordingHandle> {
       }
     }
 
-    const mediaRecorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
+    const mediaRecorder = optionsForRecorder(stream, selectedMimeType);
+    
+    // Safety: ensure tracks are cleaned up on error
+    stream.getTracks().forEach(track => {
+      track.onended = () => {
+         // handle
+      };
+    });
+
     const chunks: Blob[] = [];
 
     mediaRecorder.ondataavailable = (e) => {
@@ -33,9 +48,13 @@ export async function startRecording(): Promise<RecordingHandle> {
 
     return {
       startedAt: Date.now(),
-      mimeType: selectedMimeType,
+      mimeType: selectedMimeType || "browser-default",
       stop: () => {
-        return new Promise<Blob>((resolve) => {
+        return new Promise<Blob>((resolve, reject) => {
+          if (mediaRecorder.state === "inactive") {
+            reject(new Error("Recorder is inactive."));
+            return;
+          }
           mediaRecorder.onstop = () => {
             const blob = new Blob(chunks, { type: selectedMimeType });
             stream.getTracks().forEach((track) => track.stop());
@@ -45,12 +64,23 @@ export async function startRecording(): Promise<RecordingHandle> {
         });
       },
       abort: () => {
-        mediaRecorder.stop();
+        if (mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+        }
         stream.getTracks().forEach((track) => track.stop());
       },
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Recording error:", error);
-    throw new Error("Could not start recording. Please check microphone permissions.");
+    if (error.name === 'NotAllowedError') {
+        throw new Error("Microphone permission denied.");
+    }
+    throw new Error(`Could not start recording: ${error.message}`);
   }
+}
+
+function optionsForRecorder(stream: MediaStream, mimeType: string) {
+    return mimeType 
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
 }

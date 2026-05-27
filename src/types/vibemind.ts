@@ -1,4 +1,5 @@
 export type SpeakerRole = "partnerA" | "partnerB" | "both" | "none";
+export type MarkerSpeaker = "partnerA" | "partnerB" | "both" | "unknown";
 
 export interface PhaseConfigV2 {
   id: string;
@@ -6,8 +7,9 @@ export interface PhaseConfigV2 {
   description: string;
   durationSeconds: number;
   speaker: SpeakerRole;
-  color?: string;
+  color: string;
   guidanceText?: string;
+  promptContext?: string;
 }
 
 export interface TimerProfileV2 {
@@ -20,6 +22,8 @@ export interface TimerProfileV2 {
     partnerB: { name: string; color: string };
   };
   phases: PhaseConfigV2[];
+  summaryPromptTemplateId?: string;
+  summaryPromptMarkdown?: string;
   updatedAt: string;
 }
 
@@ -32,13 +36,14 @@ export interface SessionCreateRequest {
 
 export interface SessionCreateResponse {
   session_id: string;
+  created_at: string;
 }
 
 export interface PhaseMarker {
   phase_id: string;
   phase_type: string;
   phase_title: string;
-  speaker: SpeakerRole;
+  speaker: MarkerSpeaker;
   speaker_name?: string;
   start_seconds: number;
   end_seconds: number;
@@ -46,21 +51,30 @@ export interface PhaseMarker {
   guidance_text?: string;
 }
 
-export type SessionStatus = "idle" | "creating" | "recording" | "uploading" | "transcribing" | "done" | "error";
+export type BackendSessionStatus = "pending" | "uploaded" | "transcribing" | "done" | "error";
+export type FrontendSessionStatus = "idle" | "creating" | "recording" | "uploading" | "transcribing" | "done" | "error";
 
 export interface TranscriptTurn {
-  speaker: SpeakerRole;
-  text: string;
-  start_seconds: number;
   phase_type: string;
+  speaker: string;
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
 }
 
 export interface SessionDetailResponse {
   session_id: string;
-  created_at: number;
-  status: "idle" | "uploading" | "transcribing" | "done" | "error";
-  error?: string;
+  status: BackendSessionStatus;
+  created_at: string;
+  mode_name: string;
+  participant_name_a: string;
+  participant_name_b: string;
   transcript?: {
+    session_id: string;
     turns: TranscriptTurn[];
-  };
+    generated_at: string;
+  } | null;
+  transcript_available: boolean;
+  summary_available: boolean;
+  error?: string | null;
 }

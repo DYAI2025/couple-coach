@@ -5,112 +5,140 @@ import {
   TimerProfileV2, 
   PhaseMarker, 
   PhaseConfigV2, 
-  SessionStatus, 
+  FrontendSessionStatus, 
+  BackendSessionStatus,
   SessionDetailResponse 
 } from "../types/vibemind";
 
 export interface VibeMindSessionState {
   sessionId?: string;
-  status: SessionStatus;
-  backendStatus?: SessionDetailResponse['status'];
+  status: FrontendSessionStatus;
+  backendStatus?: BackendSessionStatus;
   error?: string;
   transcriptMarkdown?: string;
   summaryMarkdown?: string;
-  canDownloadPdf: boolean;
+  pdfSupported?: boolean;
 }
 
 export function useVibeMindSession(client: VibeMindClient | null) {
   const [state, setState] = useState<VibeMindSessionState>({
     status: "idle",
-    canDownloadPdf: false,
   });
 
   const recorderRef = useRef<RecordingHandle | null>(null);
-  const sessionStartTimeRef = useRef<number>(0);
   const markersRef = useRef<PhaseMarker[]>([]);
   const currentPhaseStartRef = useRef<number>(0);
-  const currentPhaseRef = useRef<PhaseConfigV2 | null>(null);
+  const currentPhaseIndexRef = useRef<number>(-1);
   const pollerRef = useRef<NodeJS.Timeout | null>(null);
 
   const start = useCallback(async (profile: TimerProfileV2) => {
-    if (!client) return;
-    setState((s) => ({ ...s, status: "creating" }));
-    try {
-      const { session_id } = await client.createSession({
-        participant_name_a: profile.participants.partnerA.name,
-        participant_name_b: profile.participants.partnerB.name,
-        mode_name: profile.name,
-        mode_id: profile.id,
-      });
+    setState((s) => ({ ...s, status: client ? "creating" : "recording" }));
+    markersRef.current = [];
+    currentPhaseIndexRef.current = -1;
 
+    try {
+      if (client) {
+        const { session_id } = await client.createSession({
+          participant_name_a: profile.participants.partnerA.name,
+          participant_name_b: profile.participants.partnerB.name,
+          mode_name: profile.name,
+          mode_id: profile.id,
+        });
+        setState((s) => ({ ...s, sessionId: session_id, status: "recording" }));
+      }
+      
       const recorder = await startRecording();
       recorderRef.current = recorder;
-      sessionStartTimeRef.current = performance.now();
-      
-      setState((s) => ({ ...s, sessionId: session_id, status: "recording" }));
     } catch (err: any) {
-      setState((s) => ({ ...s, status: "error", error: err.message }));
+       setState((s) => ({ ...s, status: "error", error: err.message }));
     }
   }, [client]);
 
   const markPhaseStart = useCallback((phase: PhaseConfigV2, elapsedSeconds: number) => {
-    currentPhaseRef.current = phase;
+    currentPhaseIndexRef.current = markersRef.current.length;
     currentPhaseStartRef.current = elapsedSeconds;
   }, []);
 
-  const markPhaseEnd = useCallback((elapsedSeconds: number) => {
-    if (currentPhaseRef.current) {
-      markersRef.current.push({
-        phase_id: currentPhaseRef.current.id,
-        phase_type: currentPhaseRef.current.id,
-        phase_title: currentPhaseRef.current.title,
-        speaker: currentPhaseRef.current.speaker,
-        start_seconds: currentPhaseStartRef.current,
-        end_seconds: elapsedSeconds,
-      });
+  const addPhase = useCallback((phase: PhaseConfigV2, startSeconds: number, endSeconds: number) => {
+    const existing = markersRef.current.find(m => m.phase_id === phase.id && m.end_seconds === 0);
+    if (existing) {
+        existing.end_seconds = endSeconds;
+    } else {
+        markersRef.current.push({
+            phase_id: phase.id,
+            phase_type: phase.id,
+            phase_title: phase.title,
+            speaker: (phase.speaker === "partnerA" || phase.speaker === "partnerB" || phase.speaker === "both") ? phase.speaker : "unknown",
+            start_seconds: startSeconds,
+            end_seconds: endSeconds,
+            color: phase.color
+        });
     }
   }, []);
 
   const finish = useCallback(async (finalElapsedSeconds: number) => {
-    if (!client || !state.sessionId || !recorderRef.current) return;
+    if (!recorderRef.current) return;
     
-    // Close last marker if needed
-    markPhaseEnd(finalElapsedSeconds);
+    // Stop recording
+    const audio = await recorderRef.current.stop();
+    recorderRef.current = null;
 
+    if (!client || !state.sessionId) {
+        setState((s) => ({ ...s, status: "done" }));
+        return;
+    }
+    
     setState((s) => ({ ...s, status: "uploading" }));
     try {
-      const audio = await recorderRef.current.stop();
       await client.uploadRecording(state.sessionId, audio, markersRef.current);
       await client.triggerTranscription(state.sessionId);
       
       setState((s) => ({ ...s, status: "transcribing" }));
       
-      // Start polling
+      let attempts = 0;
       pollerRef.current = setInterval(async () => {
-        if (!client || !state.sessionId) return;
+        attempts++;
+        if (attempts > 60 || !state.sessionId) {
+            clearInterval(pollerRef.current!);
+            setState((s) => ({ ...s, status: "error", error: "Polling timed out" }));
+            return;
+        }
+
         const detail = await client.getSession(state.sessionId);
+        setState(s => ({ ...s, backendStatus: detail.status }));
+
         if (detail.status === "done") {
           clearInterval(pollerRef.current!);
-          const [transcriptMarkdown, summaryMarkdown] = await Promise.all([
-            client.fetchTranscriptMarkdown(state.sessionId),
-            client.fetchSummaryMarkdown(state.sessionId)
-          ]);
-          setState((s) => ({ ...s, status: "done", transcriptMarkdown, summaryMarkdown }));
+          try {
+            const [transcriptMarkdown, summaryMarkdown] = await Promise.all([
+                client.fetchTranscriptMarkdown(state.sessionId),
+                client.fetchSummaryMarkdown(state.sessionId)
+            ]);
+            setState((s) => ({ ...s, status: "done", transcriptMarkdown, summaryMarkdown, pdfSupported: true }));
+          } catch (e) {
+            setState((s) => ({ ...s, status: "done", pdfSupported: false }));
+          }
         } else if (detail.status === "error") {
           clearInterval(pollerRef.current!);
-          setState((s) => ({ ...s, status: "error", error: detail.error }));
+          setState((s) => ({ ...s, status: "error", error: detail.error || "Unknown backend error" }));
         }
       }, 5000);
 
     } catch (err: any) {
-      setState((s) => ({ ...s, status: "error", error: err.message }));
+      if (err.message === "PDF_NOT_SUPPORTED") {
+         setState((s) => ({ ...s, status: "done", pdfSupported: false }));
+      } else {
+         setState((s) => ({ ...s, status: "error", error: err.message }));
+      }
     }
-  }, [client, state.sessionId, markPhaseEnd]);
+  }, [client, state.sessionId]);
 
   const abort = useCallback(() => {
     recorderRef.current?.abort();
+    recorderRef.current = null;
+    if (pollerRef.current) clearInterval(pollerRef.current);
     setState((s) => ({ ...s, status: "idle" }));
   }, []);
 
-  return { state, start, markPhaseStart, markPhaseEnd, finish, abort };
+  return { state, start, addPhase, finish, abort };
 }

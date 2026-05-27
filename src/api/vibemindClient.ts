@@ -1,8 +1,7 @@
 import { 
   SessionCreateRequest, 
   SessionCreateResponse, 
-  PhaseMarker, 
-  SessionDetailResponse 
+  PhaseMarker 
 } from "../types/vibemind";
 
 export class VibeMindClient {
@@ -12,20 +11,24 @@ export class VibeMindClient {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
   }
 
-  private async fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
+  private async fetchOrThrow(path: string, options?: RequestInit): Promise<Response> {
     const response = await fetch(`${this.baseUrl}/${path.replace(/^\/+/, "")}`, options);
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => "");
+      const error = new Error(`API error ${response.status}: ${response.statusText} - ${errorText}`);
+      (error as any).status = response.status;
+      throw error;
     }
-    return response.json();
+    return response;
   }
 
   async createSession(input: SessionCreateRequest): Promise<SessionCreateResponse> {
-    return this.fetchJson<SessionCreateResponse>("sessions", {
+    const response = await this.fetchOrThrow("sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
+    return response.json();
   }
 
   async uploadRecording(
@@ -34,53 +37,47 @@ export class VibeMindClient {
     phases: PhaseMarker[]
   ): Promise<{ session_id: string; status: "uploaded" }> {
     const formData = new FormData();
-    formData.append("audio", audio);
+    formData.append("audio", audio, `session_${sessionId}.webm`);
     formData.append("phases", JSON.stringify(phases));
     
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/recording`, {
+    const response = await this.fetchOrThrow(`sessions/${sessionId}/recording`, {
       method: "POST",
       body: formData,
     });
-    
-    if (!response.ok) {
-      throw new Error("Failed to upload recording");
-    }
     return response.json();
   }
 
   async triggerTranscription(
     sessionId: string
   ): Promise<{ session_id: string; status: "transcribing" | "done"; message?: string }> {
-    return this.fetchJson<{ session_id: string; status: "transcribing" | "done"; message?: string }>(
-      `sessions/${sessionId}/transcribe`,
-      { method: "POST" }
-    );
+    const response = await this.fetchOrThrow(`sessions/${sessionId}/transcribe`, { method: "POST" });
+    return response.json();
   }
 
-  async getSession(sessionId: string): Promise<SessionDetailResponse> {
-    return this.fetchJson<SessionDetailResponse>(`sessions/${sessionId}`);
+  async getSession(sessionId: string) {
+    const response = await this.fetchOrThrow(`sessions/${sessionId}`);
+    return response.json();
   }
 
   async fetchTranscriptMarkdown(sessionId: string): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/transcript.md`);
-    if (!response.ok) throw new Error("Failed to fetch transcript");
+    const response = await this.fetchOrThrow(`sessions/${sessionId}/transcript.md`);
     return response.text();
   }
 
   async fetchSummaryMarkdown(sessionId: string): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/summary.md`);
-    if (!response.ok) throw new Error("Failed to fetch summary");
+    const response = await this.fetchOrThrow(`sessions/${sessionId}/summary.md`);
     return response.text();
   }
 
   async fetchSummaryPdf(sessionId: string): Promise<Blob> {
-    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/summary.pdf`);
-    if (!response.ok) {
-      if (response.status === 404 || response.status === 501) {
-        throw new Error("PDF not supported");
+    try {
+      const response = await this.fetchOrThrow(`sessions/${sessionId}/summary.pdf`);
+      return response.blob();
+    } catch (err: any) {
+      if (err.status === 404 || err.status === 501) {
+        throw new Error("PDF_NOT_SUPPORTED");
       }
-      throw new Error("Failed to fetch PDF");
+      throw err;
     }
-    return response.blob();
   }
 }

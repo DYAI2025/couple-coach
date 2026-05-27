@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -48,9 +49,9 @@ import {
   SessionCreateRequest, 
   SessionCreateResponse, 
   PhaseMarker, 
-  SessionStatus, 
   TranscriptTurn, 
-  SessionDetailResponse 
+  SessionDetailResponse,
+  BackendSessionStatus
 } from "./types/vibemind";
 import { VibeMindClient } from "./api/vibemindClient";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -147,9 +148,10 @@ interface SelfReflectionTrendChartProps {
   result: SessionResult;
   partnerAName: string;
   partnerBName: string;
+  theme: 'dark' | 'light';
 }
 
-function SelfReflectionTrendChart({ result, partnerAName, partnerBName }: SelfReflectionTrendChartProps) {
+function SelfReflectionTrendChart({ result, partnerAName, partnerBName, theme }: SelfReflectionTrendChartProps) {
   // Let's analyze pronouns in a given text to return a score from 30 to 100
   const evaluateTextScore = (text: string, defaultScore: number): number => {
     if (!text || text.trim().length === 0) return defaultScore;
@@ -397,8 +399,6 @@ export default function App() {
     }));
   });
 
-  // Editor states for customizing or creating profile
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
   });
@@ -412,7 +412,13 @@ export default function App() {
   const [editedProfileDesc, setEditedProfileDesc] = useState("");
   const [editedPhases, setEditedPhases] = useState<PhaseConfigV2[]>([]);
 
-  // Continuous Session Audio & Timeline markers
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  const [profileStore] = React.useState(() => new ProfileStore());
+
+  const apiBaseUrl = import.meta.env.VITE_VIBEMIND_API_URL as string | undefined;
+  const vibemindClient = React.useMemo(() => apiBaseUrl ? new VibeMindClient(apiBaseUrl) : null, [apiBaseUrl]);
+  const vibemind = useVibeMindSession(vibemindClient);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const sessionStartTimeRef = useRef<number>(0);
@@ -421,7 +427,7 @@ export default function App() {
 
   // Backend Integration variables
   const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<BackendSessionStatus | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [backendTranscriptMarkdown, setBackendTranscriptMarkdown] = useState<string>("");
   const [backendSummaryMarkdown, setBackendSummaryMarkdown] = useState<string>("");
@@ -1102,7 +1108,7 @@ export default function App() {
         phase_id: currentPhase.id,
         phase_type: currentPhase.id,
         phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
         speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
         start_seconds: currentPhaseStartTimeRef.current,
         end_seconds: elapsedNow,
@@ -1131,7 +1137,7 @@ export default function App() {
         phase_id: currentPhase.id,
         phase_type: currentPhase.id,
         phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
         speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
         start_seconds: currentPhaseStartTimeRef.current,
         end_seconds: elapsedNow,
@@ -1162,7 +1168,7 @@ export default function App() {
         phase_id: currentPhase.id,
         phase_type: currentPhase.id,
         phase_title: currentPhase.title,
-        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "none")),
+        speaker: currentPhase.speaker === "partnerA" ? "partnerA" : (currentPhase.speaker === "partnerB" ? "partnerB" : (currentPhase.speaker === "both" ? "both" : "unknown")),
         speaker_name: currentPhase.speaker === "partnerA" ? partnerA_Name : (currentPhase.speaker === "partnerB" ? partnerB_Name : undefined),
         start_seconds: currentPhaseStartTimeRef.current,
         end_seconds: elapsedNow,
@@ -2363,6 +2369,7 @@ export default function App() {
                     result={latestResult}
                     partnerAName={partnerA_Name}
                     partnerBName={partnerB_Name}
+                    theme={theme}
                   />
                 </div>
               )}
@@ -2609,6 +2616,7 @@ export default function App() {
                             result={showingHistoryDetail}
                             partnerAName={showingHistoryDetail.partnerA_Name}
                             partnerBName={showingHistoryDetail.partnerB_Name}
+                            theme={theme}
                           />
                         </div>
                       )}
