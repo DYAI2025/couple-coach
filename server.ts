@@ -528,25 +528,50 @@ Only return a pure JSON string. Do not wrap the JSON output in markdown backtick
 
 // Configure Vite integration for serve & routes
 async function setupServer() {
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV ?? "(unset)"}`);
+
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    console.log("[startup] Initializing Vite dev middleware…");
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("[startup] Vite dev middleware attached.");
+    } catch (viteErr) {
+      console.error("[startup] Vite setup failed — continuing without HMR:", viteErr);
+      // Non-fatal in dev: fall through so the API routes still work.
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    console.log(`[startup] Serving static files from ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.sendFile(path.join(distPath, "index.html"), (err) => {
+        if (err) {
+          console.error("[static] Failed to send index.html:", err);
+          res.status(500).send("Internal Server Error");
+        }
+      });
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Zwiegespräch Server running on port ${PORT}`);
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
+      const addr = server.address();
+      console.log(`[startup] Zwiegespräch Server listening on ${JSON.stringify(addr)}`);
+      resolve();
+    });
+
+    server.on("error", (err) => {
+      console.error("[startup] app.listen() error:", err);
+      reject(err);
+    });
   });
 }
 
 setupServer().catch(err => {
-  console.error("Server initialization failed:", err);
+  console.error("[startup] Fatal: server initialization failed:", err);
+  process.exit(1);
 });
